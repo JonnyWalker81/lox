@@ -1,6 +1,8 @@
 const std = @import("std");
+const lox = @import("lox.zig");
 
 pub fn main() !void {
+    const argLen = argCount();
     var args = std.process.args();
     _ = args.skip();
 
@@ -8,13 +10,14 @@ pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(gpa.allocator());
     defer arena.deinit();
 
-    if (args.len > 2) {
-        try std.debug.print("Usage: jlox [script]", .{});
-        return std.os.exit(64);
-    } else if (args.len == 2) {
-        try runFile(arena, args[1]);
+    if (argLen > 2) {
+        std.debug.print("Usage: jlox [script]", .{});
+        return std.process.exit(64);
+    } else if (argLen == 2) {
+        const script = args.next();
+        try lox.Lox.runFile(arena.allocator(), script.?);
     } else {
-        try runPrompt(arena);
+        try lox.Lox.runPrompt(arena.allocator());
     }
 
     // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)main
@@ -32,56 +35,13 @@ pub fn main() !void {
     // try bw.flush(); // don't forget to flush!
 }
 
-const Lox = struct {
-    const Self = @This();
+fn argCount() usize {
+    var args = std.process.args();
+    var count: usize = 0;
 
-    hadError: bool = false,
-    fn runFile(arena: *std.heap.ArenaAllocator, path: []const u8) !void {
-        const self = @This();
-        const file = try std.fs.cwd().openFile(path, .{});
-        defer file.close();
-
-        const source = try file.readAll(arena.allocator);
-        try run(arena, source);
-
-        if (self.hadError) {
-            std.os.exit(65);
-        }
+    while (args.next()) |_| {
+        count += 1;
     }
 
-    fn runPrompt(arena: *std.heap.ArenaAllocator) !void {
-        const self = @This();
-        const stdin = std.io.getStdIn().reader();
-        var br = std.io.bufferedReader(stdin);
-        const stdout = std.io.getStdOut().writer();
-
-        while (true) {
-            try stdout.print("> ", .{});
-            const line = try br.readLine(arena.allocator);
-            if (line == null) {
-                break;
-            }
-            try run(arena, line);
-            self.hadError = false;
-        }
-    }
-
-    fn run(arena: *std.heap.ArenaAllocator, source: []const u8) !void {
-        const scanner = Scanner.init(arena, source);
-        const tokens = try scanner.scanTokens();
-
-        for (tokens) |token| {
-            try std.debug.print("{s}\n", .{token});
-        }
-    }
-
-    fn err(line: u32, message: []const u8) void {
-        report(line, "", message);
-    }
-
-    fn report(line: u32, where: []const u8, message: []const u8) void {
-        std.debug.print("[line {d}] Error {s}: {s}\n", .{ line, where, message });
-        const hadError = true;
-        _ = hadError;
-    }
-};
+    return count;
+}
