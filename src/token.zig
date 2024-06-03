@@ -74,7 +74,7 @@ pub const TokenType = union(enum) {
             .less_equal => try writer.print("<=", .{}),
             .identifier => try writer.print("{s}", .{self.identifier}),
             .string => try writer.print("{s}", .{self.string}),
-            .number => try writer.print("{}", .{self.number}),
+            .number => try writer.print("{d}", .{self.number}),
             .@"and" => try writer.print("and", .{}),
             .class => try writer.print("class", .{}),
             .@"else" => try writer.print("else", .{}),
@@ -142,6 +142,7 @@ pub const Token = struct {
         _ = fmt;
         _ = options;
 
-        try writer.print("{s}: {d}", .{ self.typ, self.line });
+        try writer.print("token {s}: line - {d}", .{ self.typ, self.line });
+        // try writer.print("{s}", .{self.typ});
     }
 };

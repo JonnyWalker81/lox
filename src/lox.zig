@@ -1,5 +1,7 @@
 const std = @import("std");
 const scanner = @import("scanner.zig");
+const token = @import("token.zig");
+const parser = @import("parser.zig");
 
 pub const Lox = struct {
     const Self = @This();
@@ -41,14 +43,30 @@ pub const Lox = struct {
     fn run(allocator: std.mem.Allocator, source: []const u8) !void {
         var scan = scanner.Scanner.init(allocator, source);
         const tokens = try scan.scanTokens();
+        var p = parser.Parser.init(allocator, tokens);
+        const e = try p.parse();
 
-        for (tokens) |token| {
-            std.debug.print("{s}\n", .{token});
+        if (inner.hadError) {
+            return;
         }
+
+        std.debug.print("expr: {any}\n", .{e});
+
+        // for (tokens) |t| {
+        //     std.debug.print("{s}\n", .{t});
+        // }
     }
 
     pub fn err(line: usize, message: []const u8) void {
         report(line, "", message);
+    }
+
+    pub fn parse_error(tok: token.Token, message: []const u8) void {
+        if (tok.typ == .eof) {
+            report(token.line, " at end", message);
+        } else {
+            report(token.line, " at '" ++ token.start, message);
+        }
     }
 
     pub fn report(line: usize, where: []const u8, message: []const u8) void {

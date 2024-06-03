@@ -7,19 +7,20 @@ pub const Expression = union(enum) {
     literal: *Expression,
     binary: struct {
         left: *Expression,
-        // operator: token.Token,
-        operator: []const u8,
+        operator: token.Token,
         right: *Expression,
     },
     unary: struct {
-        // operator: token.Token,
-        operator: []const u8,
+        operator: token.Token,
         right: *Expression,
     },
     grouping: struct {
         expression: *Expression,
     },
+    string: []const u8,
     number: f64,
+    boolean: bool,
+    nil: void,
 
     pub fn format(
         self: Self,
@@ -35,25 +36,33 @@ pub const Expression = union(enum) {
                 try writer.print("{s}", .{l});
             },
             .binary => |b| {
-                try parenthesize(writer, b.operator, .{ b.left, b.right });
+                try parenthesize(writer, b.operator.typ, .{ b.left, b.right });
             },
             .unary => |u| {
-                try parenthesize(writer, u.operator, .{u.right});
+                try parenthesize(writer, u.operator.typ, .{u.right});
             },
             .grouping => |g| {
                 try parenthesize(writer, "group", .{g.expression});
             },
+            .string => |s| {
+                try writer.print("{s}", .{s});
+            },
             .number => |n| {
                 try writer.print("{d}", .{n});
             },
+            .boolean => |b| {
+                try writer.print("{s}", .{if (b) "true" else "false"});
+            },
+            .nil => {},
         }
     }
 
     fn parenthesize(
         writer: anytype,
-        name: []const u8,
+        name: anytype,
         expressions: anytype,
     ) !void {
+        // _ = expressions;
         try writer.print("({s}", .{name});
         inline for (expressions) |e| {
             try writer.print(" ", .{});
@@ -77,8 +86,7 @@ test "test pretty print" {
     literal.* = .{ .number = 123 };
     unary.* = .{
         .unary = .{
-            // .operator = .{ .typ = token.TokenType.minus, .line = 1 },
-            .operator = "-",
+            .operator = .{ .typ = token.TokenType.minus, .line = 1 },
             .right = literal,
         },
     };
@@ -97,8 +105,7 @@ test "test pretty print" {
     expr.* = .{
         .binary = .{
             .left = unary,
-            // .operator = .{ .typ = token.TokenType.star, .line = 1 },
-            .operator = "*",
+            .operator = .{ .typ = token.TokenType.star, .line = 1 },
             .right = group,
         },
     };
