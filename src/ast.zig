@@ -1,22 +1,29 @@
 const std = @import("std");
 const token = @import("token.zig");
 
+pub const BinaryExpr = struct {
+    left: *Expression,
+    operator: token.Token,
+    right: *Expression,
+};
+
+pub const UnaryExpr = struct {
+    operator: token.Token,
+    right: *Expression,
+};
+
+pub const GroupingExpr = struct {
+    expression: *Expression,
+};
+
 pub const Expression = union(enum) {
     const Self = @This();
 
+    variable: token.Token,
     literal: *Expression,
-    binary: struct {
-        left: *Expression,
-        operator: token.Token,
-        right: *Expression,
-    },
-    unary: struct {
-        operator: token.Token,
-        right: *Expression,
-    },
-    grouping: struct {
-        expression: *Expression,
-    },
+    binary: BinaryExpr,
+    unary: UnaryExpr,
+    grouping: GroupingExpr,
     string: []const u8,
     number: f64,
     boolean: bool,
@@ -32,6 +39,9 @@ pub const Expression = union(enum) {
         _ = options;
 
         switch (self) {
+            .variable => |i| {
+                try writer.print("{s}", .{i});
+            },
             .literal => |l| {
                 try writer.print("{s}", .{l});
             },
@@ -70,6 +80,17 @@ pub const Expression = union(enum) {
         }
         try writer.print(")", .{});
     }
+};
+
+pub const Variable = struct {
+    name: token.Token,
+    initializer: *Expression,
+};
+
+pub const Statement = union(enum) {
+    expressionStatement: *Expression,
+    print: *Expression,
+    variable: *Variable,
 };
 
 const test_allocator = std.testing.allocator;

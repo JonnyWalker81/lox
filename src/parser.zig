@@ -27,14 +27,82 @@ pub const Parser = struct {
         self.arena.deinit();
     }
 
-    pub fn parse(self: *Self) !?*ast.Expression {
-        return self.expression() catch {
-            return null;
-        };
+    pub fn parse(self: *Self) ![]*ast.Statement {
+        var statements = std.ArrayList(*ast.Statement).init(self.arena.allocator());
+        while (!self.is_at_end()) {
+            _ = try statements.append(try self.declaration());
+        }
+
+        return statements.toOwnedSlice();
     }
 
     pub fn expression(self: *Self) anyerror!*ast.Expression {
         return try self.equality();
+    }
+
+    fn declaration(self: *Self) !*ast.Statement {
+        if (self.match(.{@tagName(token.TokenType.@"var")})) {
+            return self.varDeclaration() catch {
+                self.synchronize();
+                return ParseErrors.ParseError;
+            };
+        }
+
+        return self.statement() catch {
+            self.synchronize();
+            return ParseErrors.ParseError;
+        };
+    }
+
+    pub fn statement(self: *Self) !*ast.Statement {
+        if (self.match(.{@tagName(token.TokenType.print)})) {
+            return try self.printStatement();
+        }
+
+        return try self.expressionStatement();
+    }
+
+    fn printStatement(self: *Self) !*ast.Statement {
+        const value = try self.expression();
+        _ = try self.consume(@tagName(token.TokenType.semicolon), "Expect ';' after value.");
+        const stmt = try self.arena.allocator().create(ast.Statement);
+        stmt.* = .{
+            .print = value,
+        };
+
+        return stmt;
+    }
+
+    fn varDeclaration(self: *Self) !*ast.Statement {
+        const name = try self.consume(@tagName(token.TokenType.identifier), "Expect variable name.");
+        var initializer: *ast.Expression = undefined;
+        if (self.match(.{@tagName(token.TokenType.equal)})) {
+            initializer = try self.expression();
+        }
+
+        _ = try self.consume(@tagName(token.TokenType.semicolon), "Expect ';' after variable declaration.");
+        const stmt = try self.arena.allocator().create(ast.Statement);
+        const v = try self.arena.allocator().create(ast.Variable);
+        v.* = .{
+            .name = name,
+            .initializer = initializer,
+        };
+        stmt.* = .{
+            .variable = v,
+        };
+
+        return stmt;
+    }
+
+    fn expressionStatement(self: *Self) !*ast.Statement {
+        const value = try self.expression();
+        _ = try self.consume(@tagName(token.TokenType.semicolon), "Expect ';' after value.");
+        const stmt = try self.arena.allocator().create(ast.Statement);
+        stmt.* = .{
+            .expressionStatement = value,
+        };
+
+        return stmt;
     }
 
     fn equality(self: *Self) anyerror!*ast.Expression {
@@ -85,7 +153,7 @@ pub const Parser = struct {
     fn term(self: *Self) !*ast.Expression {
         var expr = try self.factor();
 
-        std.log.warn("factor result: {}\n", .{expr});
+        // std.log.warn("factor result: {}\n", .{expr});
 
         while (self.match(.{
             @tagName(token.TokenType.minus),
@@ -102,7 +170,7 @@ pub const Parser = struct {
                     .right = right,
                 },
             };
-            std.log.warn("Term: {} {} {}\n", .{ expr.binary.left, expr.binary.operator, expr.binary.right });
+            // std.log.warn("Term: {} {} {}\n", .{ expr.binary.left, expr.binary.operator, expr.binary.right });
             // std.log.warn("Term: {}\n", .{expr.binary.left});
         }
 
@@ -197,7 +265,15 @@ pub const Parser = struct {
             expr.* = .{
                 .literal = literal,
             };
-            std.log.warn("returning Literal: {}\n", .{expr.literal});
+            // std.log.warn("returning Literal: {}\n", .{expr.literal});
+            return expr;
+        }
+
+        if (self.match(.{@tagName(token.TokenType.identifier)})) {
+            const expr = try self.arena.allocator().create(ast.Expression);
+            expr.* = .{
+                .variable = self.previous(),
+            };
             return expr;
         }
 
@@ -264,7 +340,7 @@ pub const Parser = struct {
     }
 
     fn synchronize(self: *Self) void {
-        self.advance();
+        _ = self.advance();
 
         while (!self.is_at_end()) {
             if (self.previous().typ == token.TokenType.semicolon) {
@@ -284,7 +360,7 @@ pub const Parser = struct {
                 else => {},
             }
 
-            self.advance();
+            _ = self.advance();
         }
     }
 };

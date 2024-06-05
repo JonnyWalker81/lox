@@ -2,12 +2,15 @@ const std = @import("std");
 const scanner = @import("scanner.zig");
 const token = @import("token.zig");
 const parser = @import("parser.zig");
+const interpreter = @import("interpreter.zig");
+const object = @import("object.zig");
 
 pub const Lox = struct {
     const Self = @This();
 
     const inner = struct {
         pub var hadError: bool = false;
+        pub var hadRuntimeError: bool = false;
     };
 
     pub fn runFile(allocator: std.mem.Allocator, path: []const u8) !void {
@@ -44,13 +47,24 @@ pub const Lox = struct {
         var scan = scanner.Scanner.init(allocator, source);
         const tokens = try scan.scanTokens();
         var p = parser.Parser.init(allocator, tokens);
-        const e = try p.parse();
+        defer p.deinit();
+
+        const statements = try p.parse();
 
         if (inner.hadError) {
             return;
         }
 
-        std.debug.print("expr: {any}\n", .{e});
+        // std.debug.print("expr: {any}\n", .{e});
+        var i = interpreter.Interpreter.init(allocator);
+
+        i.interpret(statements) catch |er| {
+            std.debug.print("Error: {}\n", .{er});
+            inner.hadRuntimeError = true;
+            return;
+        };
+
+        // std.debug.print("{}\n", .{obj});
 
         // for (tokens) |t| {
         //     std.debug.print("{s}\n", .{t});
