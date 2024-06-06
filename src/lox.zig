@@ -45,6 +45,7 @@ pub const Lox = struct {
 
     fn run(allocator: std.mem.Allocator, source: []const u8) !void {
         var scan = scanner.Scanner.init(allocator, source);
+        defer scan.deinit();
         const tokens = try scan.scanTokens();
         var p = parser.Parser.init(allocator, tokens);
         defer p.deinit();
@@ -57,6 +58,7 @@ pub const Lox = struct {
 
         // std.debug.print("expr: {any}\n", .{e});
         var i = interpreter.Interpreter.init(allocator);
+        defer i.deinit();
 
         i.interpret(statements) catch |er| {
             std.debug.print("Error: {}\n", .{er});
@@ -89,3 +91,12 @@ pub const Lox = struct {
         _ = hadError;
     }
 };
+
+const test_allocator = std.testing.allocator;
+test "test variable statement" {
+    var arena = std.heap.ArenaAllocator.init(test_allocator);
+    defer arena.deinit();
+
+    const source = "var a = 1; var b = 2; print a + b;";
+    try Lox.run(arena.allocator(), source);
+}

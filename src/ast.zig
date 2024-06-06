@@ -84,7 +84,7 @@ pub const Expression = union(enum) {
 
 pub const Variable = struct {
     name: token.Token,
-    initializer: *Expression,
+    initializer: ?*Expression,
 };
 
 pub const Statement = union(enum) {

@@ -1,6 +1,7 @@
 const std = @import("std");
 const ast = @import("ast.zig");
 const object = @import("object.zig");
+const env = @import("environment.zig");
 
 const InterpreterErrors = error{
     UnexpectedExpression,
@@ -11,11 +12,18 @@ pub const Interpreter = struct {
     const Self = @This();
 
     arena: std.heap.ArenaAllocator,
+    environment: env.Environment,
 
     pub fn init(allocator: std.mem.Allocator) Interpreter {
         return Interpreter{
             .arena = std.heap.ArenaAllocator.init(allocator),
+            .environment = env.Environment.init(allocator),
         };
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.arena.deinit();
+        self.environment.deinit();
     }
 
     pub fn interpret(self: *Self, statements: []*ast.Statement) !void {
@@ -32,7 +40,9 @@ pub const Interpreter = struct {
             .print => |_| {
                 return self.evalPrintStatement(stmt);
             },
-            .variable => |_| {},
+            .variable => |_| {
+                return self.evalVariableStatement(stmt);
+            },
         }
 
         return InterpreterErrors.UnexpectedStatement;
@@ -163,6 +173,10 @@ pub const Interpreter = struct {
             .binary => |b| {
                 return try self.evalBinary(&b);
             },
+            .variable => |v| {
+                const name = try std.fmt.allocPrint(self.arena.allocator(), "{}", .{v.typ});
+                return self.environment.get(name);
+            },
             else => {
                 return InterpreterErrors.UnexpectedExpression;
             },
@@ -176,6 +190,17 @@ pub const Interpreter = struct {
     fn evalPrintStatement(self: *Self, stmt: *ast.Statement) !void {
         const obj = try self.evaluate(stmt.print);
         std.debug.print("{}\n", .{obj});
+        std.log.warn("{}\n", .{obj});
+    }
+
+    fn evalVariableStatement(self: *Self, stmt: *ast.Statement) !void {
+        var value: *object.Object = undefined;
+        if (stmt.variable.initializer) |i| {
+            value = try self.evaluate(i);
+        }
+
+        const name = try std.fmt.allocPrint(self.arena.allocator(), "{}", .{stmt.variable.name.typ});
+        try self.environment.define(name, value);
     }
 
     fn toObject(self: *Self, expr: *ast.Expression) !*object.Object {
