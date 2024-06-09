@@ -37,10 +37,10 @@ pub const Parser = struct {
     }
 
     pub fn expression(self: *Self) anyerror!*ast.Expression {
-        return try self.equality();
+        return try self.assignment();
     }
 
-    fn declaration(self: *Self) !*ast.Statement {
+    fn declaration(self: *Self) anyerror!*ast.Statement {
         if (self.match(.{@tagName(token.TokenType.@"var")})) {
             return self.varDeclaration() catch {
                 self.synchronize();
@@ -54,16 +54,164 @@ pub const Parser = struct {
         };
     }
 
-    pub fn statement(self: *Self) !*ast.Statement {
+    pub fn statement(self: *Self) anyerror!*ast.Statement {
+        if (self.match(.{@tagName(token.TokenType.@"for")})) {
+            return try self.forStatement();
+        }
+
+        if (self.match(.{@tagName(token.TokenType.@"if")})) {
+            return try self.ifStatement();
+        }
+
         if (self.match(.{@tagName(token.TokenType.print)})) {
             return try self.printStatement();
+        }
+
+        if (self.match(.{@tagName(token.TokenType.@"while")})) {
+            return try self.whileStatement();
+        }
+
+        if (self.match(.{@tagName(token.TokenType.left_brace)})) {
+            return try self.block();
         }
 
         return try self.expressionStatement();
     }
 
+    fn forStatement(self: *Self) !*ast.Statement {
+        _ = try self.consume(@tagName(token.TokenType.left_paren), "Expect '(' after 'for'.");
+        var initializer: ?*ast.Statement = null;
+        if (self.match(.{@tagName(token.TokenType.semicolon)})) {
+            initializer = null;
+        } else if (self.match(.{@tagName(token.TokenType.@"var")})) {
+            initializer = try self.varDeclaration();
+        } else {
+            initializer = try self.expressionStatement();
+        }
+
+        var condition: ?*ast.Expression = null;
+        if (!self.check(@tagName(token.TokenType.semicolon))) {
+            condition = try self.expression();
+        }
+        _ = try self.consume(@tagName(token.TokenType.semicolon), "Expect ';' after loop condition.");
+
+        var increment: ?*ast.Expression = null;
+        if (!self.check(@tagName(token.TokenType.right_paren))) {
+            increment = try self.expression();
+        }
+        _ = try self.consume(@tagName(token.TokenType.right_paren), "Expect ')' after for clauses.");
+
+        const bodyStmt = try self.statement();
+        const bodyBlock: ?*ast.Statement = try self.arena.allocator().create(ast.Statement);
+        if (increment) |inc| {
+            // const b = body;
+            const stmt = try self.arena.allocator().create(ast.Statement);
+
+            stmt.* = .{ .expressionStatement = inc };
+            // body = try self.arena.allocator().create(ast.Statement);
+            var stmts = std.ArrayList(*ast.Statement).init(self.arena.allocator());
+            try stmts.append(bodyStmt);
+            try stmts.append(stmt);
+            bodyBlock.?.* = .{
+                .block = try stmts.toOwnedSlice(),
+            };
+        }
+
+        if (condition == null) {
+            // std.log.warn("Condition is null, while true", .{});
+            condition = try self.arena.allocator().create(ast.Expression);
+            const condLit = try self.arena.allocator().create(ast.Expression);
+            condLit.* = .{ .boolean = true };
+            condition.?.* = .{
+                .literal = condLit,
+            };
+        }
+
+        // const stmt = try self.arena.allocator().create(ast.Statement);
+        const whileStmt = try self.arena.allocator().create(ast.WhileStatement);
+
+        // const b = body;
+        whileStmt.* = .{
+            .condition = condition.?,
+            .body = bodyBlock.?,
+        };
+
+        const bodyWhile: ?*ast.Statement = try self.arena.allocator().create(ast.Statement);
+        bodyWhile.?.* = .{
+            .whileStmt = whileStmt,
+        };
+
+        // stmt.* = .{ .whileStmt = whileStmt };
+        var bodyFinal: ?*ast.Statement = null;
+        if (initializer) |in| {
+            bodyFinal = try self.arena.allocator().create(ast.Statement);
+            // const bbb = try self.arena.allocator().create(ast.Statement);
+            // bbb. = &[_]*ast.Statement{ initializer.?, bb };
+            var stmts = std.ArrayList(*ast.Statement).init(self.arena.allocator());
+            // std.log.warn("Initializer: {any}\n", .{initializer});
+            try stmts.append(in);
+            try stmts.append(bodyWhile.?);
+            bodyFinal.?.* = .{
+                .block = try stmts.toOwnedSlice(),
+            };
+        }
+
+        // std.log.warn("For statement (while loop): {s} -- {any}\n", .{ stmt.whileStmt.condition, stmt.whileStmt.body });
+
+        if (bodyFinal) |bf| {
+            return bf;
+        } else {
+            return bodyWhile.?;
+        }
+    }
+
+    fn whileStatement(self: *Self) !*ast.Statement {
+        _ = try self.consume(@tagName(token.TokenType.left_paren), "Expect '(' after 'while'.");
+        const condition = try self.expression();
+        _ = try self.consume(@tagName(token.TokenType.right_paren), "Expect ')' after condition.");
+        const body = try self.statement();
+
+        const stmt = try self.arena.allocator().create(ast.Statement);
+        const whileStmt = try self.arena.allocator().create(ast.WhileStatement);
+        whileStmt.* = .{
+            .condition = condition,
+            .body = body,
+        };
+        stmt.* = .{
+            .whileStmt = whileStmt,
+        };
+
+        return stmt;
+    }
+
+    fn ifStatement(self: *Self) !*ast.Statement {
+        _ = try self.consume(@tagName(token.TokenType.left_paren), "Expect '(' after 'if'.");
+        const condition = try self.expression();
+
+        _ = try self.consume(@tagName(token.TokenType.right_paren), "Expect ')' after if condition.");
+        const thenBranch = try self.statement();
+        var elseBranch: ?*ast.Statement = null;
+        if (self.match(.{@tagName(token.TokenType.@"else")})) {
+            elseBranch = try self.statement();
+        }
+
+        const stmt = try self.arena.allocator().create(ast.Statement);
+        const ifStmt = try self.arena.allocator().create(ast.IfStatement);
+        ifStmt.* = .{
+            .condition = condition,
+            .thenBranch = thenBranch,
+            .elseBranch = elseBranch,
+        };
+        stmt.* = .{
+            .ifStmt = ifStmt,
+        };
+
+        return stmt;
+    }
+
     fn printStatement(self: *Self) !*ast.Statement {
         const value = try self.expression();
+        // std.log.warn("Print statement: {}\n", .{value.variable.typ});
         _ = try self.consume(@tagName(token.TokenType.semicolon), "Expect ';' after value.");
         const stmt = try self.arena.allocator().create(ast.Statement);
         stmt.* = .{
@@ -90,6 +238,7 @@ pub const Parser = struct {
         stmt.* = .{
             .variable = v,
         };
+        // std.log.warn("Var declaration: {any}\n", .{stmt});
 
         return stmt;
     }
@@ -103,6 +252,82 @@ pub const Parser = struct {
         };
 
         return stmt;
+    }
+
+    fn block(self: *Self) !*ast.Statement {
+        var statements = std.ArrayList(*ast.Statement).init(self.arena.allocator());
+        while (!self.check(@tagName(token.TokenType.right_brace)) and !self.is_at_end()) {
+            _ = try statements.append(try self.declaration());
+        }
+        _ = try self.consume(@tagName(token.TokenType.right_brace), "Expect '}' after block.");
+        const stmt = try self.arena.allocator().create(ast.Statement);
+        stmt.* = .{
+            .block = try statements.toOwnedSlice(),
+        };
+        return stmt;
+    }
+
+    fn assignment(self: *Self) anyerror!*ast.Expression {
+        // std.log.warn("Assignment\n", .{});
+        const expr = try self.logicalOr();
+
+        if (self.match(.{@tagName(token.TokenType.equal)})) {
+            const equals = self.previous();
+            const value = try self.assignment();
+
+            if (expr.* == ast.Expression.variable) {
+                const variable = expr.variable;
+                const assign = try self.arena.allocator().create(ast.Expression);
+                assign.* = .{
+                    .assignment = .{
+                        .name = variable,
+                        .value = value,
+                    },
+                };
+                // std.log.warn("Assignment: {s}\n", .{assign});
+                return assign;
+            }
+
+            try self.err(equals, "Invalid assignment target.");
+        }
+
+        return expr;
+    }
+
+    fn logicalOr(self: *Self) anyerror!*ast.Expression {
+        var expr = try self.logicalAnd();
+        while (self.match(.{@tagName(token.TokenType.@"or")})) {
+            const op = self.previous();
+            const right = try self.logicalAnd();
+            const left = expr;
+            expr = try self.arena.allocator().create(ast.Expression);
+            expr.* = .{
+                .logical = .{
+                    .left = left,
+                    .operator = op,
+                    .right = right,
+                },
+            };
+        }
+        return expr;
+    }
+
+    fn logicalAnd(self: *Self) anyerror!*ast.Expression {
+        var expr = try self.equality();
+        while (self.match(.{@tagName(token.TokenType.@"and")})) {
+            const op = self.previous();
+            const right = try self.equality();
+            const left = expr;
+            expr = try self.arena.allocator().create(ast.Expression);
+            expr.* = .{
+                .logical = .{
+                    .left = left,
+                    .operator = op,
+                    .right = right,
+                },
+            };
+        }
+        return expr;
     }
 
     fn equality(self: *Self) anyerror!*ast.Expression {
@@ -211,7 +436,44 @@ pub const Parser = struct {
             return expr;
         }
 
-        return self.primary();
+        return self.call();
+    }
+
+    fn finishCall(self: *Self, callee: *ast.Expression) !*ast.Expression {
+        var arguments = std.ArrayList(*ast.Expression).init(self.arena.allocator());
+        if (!self.check(@tagName(token.TokenType.right_paren))) {
+            _ = try arguments.append(try self.expression());
+            while (self.match(.{@tagName(token.TokenType.comma)})) {
+                if (arguments.items.len >= 255) {
+                    lox.Lox.err(self.peek().line, "Cannot have more than 255 arguments.");
+                }
+                _ = try arguments.append(try self.expression());
+            }
+        }
+        const paren = try self.consume(@tagName(token.TokenType.right_paren), "Expect ')' after arguments.");
+        const expr = try self.arena.allocator().create(ast.Expression);
+        expr.* = .{
+            .call = .{
+                .callee = callee,
+                .paren = paren,
+                .arguments = try arguments.toOwnedSlice(),
+            },
+        };
+
+        return expr;
+    }
+
+    fn call(self: *Self) !*ast.Expression {
+        var expr = try self.primary();
+
+        while (true) {
+            if (self.match(.{@tagName(token.TokenType.left_paren)})) {
+                expr = try self.finishCall(expr);
+            } else {
+                break;
+            }
+        }
+        return expr;
     }
 
     fn primary(self: *Self) !*ast.Expression {
@@ -334,8 +596,8 @@ pub const Parser = struct {
         return self.tokens[self.current - 1];
     }
 
-    fn err(tok: token.Token, message: []const u8) !void {
-        lox.Lox.err(tok, message);
+    fn err(self: *Self, tok: token.Token, message: []const u8) !void {
+        lox.Lox.parse_error(self.arena.allocator(), tok, message);
         return ParseErrors.ParseError;
     }
 

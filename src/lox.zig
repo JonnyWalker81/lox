@@ -77,11 +77,12 @@ pub const Lox = struct {
         report(line, "", message);
     }
 
-    pub fn parse_error(tok: token.Token, message: []const u8) void {
+    pub fn parse_error(allocator: std.mem.Allocator, tok: token.Token, message: []const u8) void {
         if (tok.typ == .eof) {
-            report(token.line, " at end", message);
+            report(tok.line, " at end", message);
         } else {
-            report(token.line, " at '" ++ token.start, message);
+            const lexeme = std.fmt.allocPrint(allocator, " at '{}", .{tok.typ}) catch unreachable;
+            report(tok.line, lexeme, message);
         }
     }
 
@@ -98,5 +99,65 @@ test "test variable statement" {
     defer arena.deinit();
 
     const source = "var a = 1; var b = 2; print a + b;";
+    try Lox.run(arena.allocator(), source);
+}
+
+test "test variable assignment" {
+    var arena = std.heap.ArenaAllocator.init(test_allocator);
+    defer arena.deinit();
+
+    const source = "var a = 1; print a = 2;";
+    try Lox.run(arena.allocator(), source);
+}
+
+test "test block statements" {
+    var arena = std.heap.ArenaAllocator.init(test_allocator);
+    defer arena.deinit();
+
+    const source =
+        \\var a = "global a";
+        \\var b = "global b";
+        \\var c = "global c";
+        \\{
+        \\  var a = "outer a";
+        \\  var b = "outer b";
+        \\  {
+        \\    var a = "inner a";
+        \\    print a;
+        \\    print b;
+        \\    print c;
+        \\  }
+        \\  print a;
+        \\  print b;
+        \\  print c;
+        \\}
+        \\print a;
+        \\print b;
+        \\print c;
+        \\
+    ;
+    try Lox.run(arena.allocator(), source);
+}
+
+test "test while loop" {
+    var arena = std.heap.ArenaAllocator.init(test_allocator);
+    defer arena.deinit();
+    const source =
+        \\var a = 0;
+        \\var temp = 0;
+        \\
+        \\for (var b = 1; a < 1000; b = temp + b) {
+        \\  print a;
+        \\  temp = a;
+        \\  a = b;
+        \\}
+    ;
+
+    // const source =
+    //     \\for (var i = 0; i < 2; i = i + 1) {
+    //     \\  print i;
+    //     \\}
+    // ;
+
     try Lox.run(arena.allocator(), source);
 }

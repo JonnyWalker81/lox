@@ -2,22 +2,36 @@ const std = @import("std");
 const ast = @import("ast.zig");
 const object = @import("object.zig");
 const env = @import("environment.zig");
+const lox = @import("lox.zig");
+const callable = @import("callable.zig");
 
-const InterpreterErrors = error{
-    UnexpectedExpression,
-    UnexpectedStatement,
-};
+const InterpreterErrors = error{ UnexpectedExpression, UnexpectedStatement, FunctionArityMismatch };
 
 pub const Interpreter = struct {
     const Self = @This();
 
     arena: std.heap.ArenaAllocator,
-    environment: env.Environment,
+    environment: *env.Environment,
+    globals: *env.Environment,
 
     pub fn init(allocator: std.mem.Allocator) Interpreter {
+        const globals = env.Environment.init(allocator);
+        const clockCallable = allocator.create(callable.Callable) catch unreachable;
+        const clock = allocator.create(callable.Clock) catch unreachable;
+
+        clock.* = callable.Clock.init(allocator);
+
+        clockCallable.* = callable.Callable.init(clock);
+
+        const clockObj = allocator.create(object.Object) catch unreachable;
+        clockObj.* = .{ .callable = clockCallable };
+
+        globals.define("clock", clockObj) catch unreachable;
+
         return Interpreter{
             .arena = std.heap.ArenaAllocator.init(allocator),
-            .environment = env.Environment.init(allocator),
+            .environment = globals,
+            .globals = globals,
         };
     }
 
@@ -40,12 +54,52 @@ pub const Interpreter = struct {
             .print => |_| {
                 return self.evalPrintStatement(stmt);
             },
-            .variable => |_| {
-                return self.evalVariableStatement(stmt);
+            .variable => |v| {
+                return self.evalVariableStatement(v);
+            },
+            .block => |b| {
+                const e = env.Environment.initWithEnclosing(
+                    self.arena.allocator(),
+                    self.environment,
+                );
+                return self.evalBlock(b, e);
+            },
+            .ifStmt => |i| {
+                return self.evalIfStatement(i);
+            },
+            .whileStmt => |w| {
+                return self.evalWhileStatement(w);
             },
         }
 
         return InterpreterErrors.UnexpectedStatement;
+    }
+
+    fn evalWhileStatement(self: *Self, stmt: *ast.WhileStatement) anyerror!void {
+        // std.log.warn("While statement: {any}&[_]*ast.Statement{ initializer.?, bb }&[_]*ast.Statement{ initializer.?, bb }&[_]*ast.Statement{ initializer.?, bb }\n", .{stmt});
+        while (isTruthy(try self.evaluate(stmt.condition))) {
+            try self.execute(stmt.body);
+        }
+    }
+
+    fn evalIfStatement(self: *Self, stmt: *ast.IfStatement) !void {
+        const condition = try self.evaluate(stmt.condition);
+        if (isTruthy(condition)) {
+            try self.execute(stmt.thenBranch);
+        } else if (stmt.elseBranch) |e| {
+            try self.execute(e);
+        }
+    }
+
+    fn evalBlock(self: *Self, block: []const *ast.Statement, environment: *env.Environment) !void {
+        const previous = self.environment;
+        defer self.environment = previous;
+
+        // std.log.warn("Statements: {any}", .{block});
+        self.environment = environment;
+        for (block) |s| {
+            try self.execute(s);
+        }
     }
 
     fn evalLiteral(self: *Self, expr: *ast.Expression) !*object.Object {
@@ -177,10 +231,51 @@ pub const Interpreter = struct {
                 const name = try std.fmt.allocPrint(self.arena.allocator(), "{}", .{v.typ});
                 return self.environment.get(name);
             },
+            .assignment => |a| {
+                return try self.evalAssign(&a);
+            },
+            .logical => |l| {
+                return try self.evalLogical(&l);
+            },
+            .call => |c| {
+                return try self.evalCall(&c);
+            },
             else => {
+                std.log.warn("Unexpected expression: {}\n", .{expr});
+                std.log.warn("Unexpected expression: {s}\n", .{@tagName(expr.*)});
                 return InterpreterErrors.UnexpectedExpression;
             },
         }
+    }
+
+    fn evalCall(self: *Self, expr: *const ast.Call) anyerror!*object.Object {
+        const callee = try self.evaluate(expr.callee);
+        var arguments = std.ArrayList(*object.Object).init(self.arena.allocator());
+        for (expr.arguments) |arg| {
+            const obj = try self.evaluate(arg);
+            try arguments.append(obj);
+        }
+        const function = callee.callable;
+        if (arguments.items.len != function.arity()) {
+            lox.Lox.err(expr.paren.line, "Cannot have more than 255 arguments.");
+            return InterpreterErrors.FunctionArityMismatch;
+        }
+
+        return function.call(self, try arguments.toOwnedSlice());
+    }
+
+    fn evalLogical(self: *Self, expr: *const ast.Logical) anyerror!*object.Object {
+        const left = try self.evaluate(expr.left);
+        if (expr.operator.typ == .@"or") {
+            if (isTruthy(left)) {
+                return left;
+            }
+        } else {
+            if (!isTruthy(left)) {
+                return left;
+            }
+        }
+        return self.evaluate(expr.right);
     }
 
     fn evalExpressionStatement(self: *Self, stmt: *ast.Statement) !void {
@@ -188,19 +283,27 @@ pub const Interpreter = struct {
     }
 
     fn evalPrintStatement(self: *Self, stmt: *ast.Statement) !void {
+        // std.log.warn("Evaluating print statement: {}\n", .{stmt});
         const obj = try self.evaluate(stmt.print);
         std.debug.print("{}\n", .{obj});
-        std.log.warn("{}\n", .{obj});
+        // std.log.warn("{}\n", .{obj});
     }
 
-    fn evalVariableStatement(self: *Self, stmt: *ast.Statement) !void {
+    fn evalVariableStatement(self: *Self, stmt: *ast.Variable) !void {
         var value: *object.Object = undefined;
-        if (stmt.variable.initializer) |i| {
+        if (stmt.initializer) |i| {
             value = try self.evaluate(i);
         }
 
-        const name = try std.fmt.allocPrint(self.arena.allocator(), "{}", .{stmt.variable.name.typ});
+        const name = try std.fmt.allocPrint(self.arena.allocator(), "{}", .{stmt.name.typ});
         try self.environment.define(name, value);
+    }
+
+    fn evalAssign(self: *Self, expr: *const ast.Assignment) !*object.Object {
+        const value = try self.evaluate(expr.value);
+        const name = try std.fmt.allocPrint(self.arena.allocator(), "{}", .{expr.name.typ});
+        try self.environment.assign(name, value);
+        return value;
     }
 
     fn toObject(self: *Self, expr: *ast.Expression) !*object.Object {

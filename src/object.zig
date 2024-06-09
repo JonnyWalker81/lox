@@ -1,4 +1,5 @@
 const std = @import("std");
+const callable = @import("callable.zig");
 
 pub const Object = union(enum) {
     const Self = @This();
@@ -7,6 +8,7 @@ pub const Object = union(enum) {
     boolean: bool,
     number: f64,
     string: []const u8,
+    callable: *callable.Callable,
 
     pub fn numberValue(self: *Self) f64 {
         return switch (self.*) {
@@ -49,6 +51,9 @@ pub const Object = union(enum) {
             },
             .string => |s| {
                 try writer.print("{s}", .{s});
+            },
+            .callable => |_| {
+                try writer.print("callable", .{});
             },
         }
     }

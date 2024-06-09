@@ -16,9 +16,27 @@ pub const GroupingExpr = struct {
     expression: *Expression,
 };
 
+pub const Assignment = struct {
+    name: token.Token,
+    value: *Expression,
+};
+
+pub const Logical = struct {
+    left: *Expression,
+    operator: token.Token,
+    right: *Expression,
+};
+
+pub const Call = struct {
+    callee: *Expression,
+    paren: token.Token,
+    arguments: []const *Expression,
+};
+
 pub const Expression = union(enum) {
     const Self = @This();
 
+    assignment: Assignment,
     variable: token.Token,
     literal: *Expression,
     binary: BinaryExpr,
@@ -27,6 +45,8 @@ pub const Expression = union(enum) {
     string: []const u8,
     number: f64,
     boolean: bool,
+    logical: Logical,
+    call: Call,
     nil: void,
 
     pub fn format(
@@ -39,8 +59,11 @@ pub const Expression = union(enum) {
         _ = options;
 
         switch (self) {
+            .assignment => |a| {
+                try writer.print("{s} = {s}", .{ a.name, a.value });
+            },
             .variable => |i| {
-                try writer.print("{s}", .{i});
+                try writer.print("{s}", .{i.typ});
             },
             .literal => |l| {
                 try writer.print("{s}", .{l});
@@ -62,6 +85,12 @@ pub const Expression = union(enum) {
             },
             .boolean => |b| {
                 try writer.print("{s}", .{if (b) "true" else "false"});
+            },
+            .logical => |l| {
+                try parenthesize(writer, l.operator.typ, .{ l.left, l.right });
+            },
+            .call => |c| {
+                try parenthesize(writer, c.callee, .{c.arguments});
             },
             .nil => {},
         }
@@ -87,10 +116,24 @@ pub const Variable = struct {
     initializer: ?*Expression,
 };
 
+pub const IfStatement = struct {
+    condition: *Expression,
+    thenBranch: *Statement,
+    elseBranch: ?*Statement,
+};
+
+pub const WhileStatement = struct {
+    condition: *Expression,
+    body: *Statement,
+};
+
 pub const Statement = union(enum) {
     expressionStatement: *Expression,
     print: *Expression,
     variable: *Variable,
+    block: []const *Statement,
+    ifStmt: *IfStatement,
+    whileStmt: *WhileStatement,
 };
 
 const test_allocator = std.testing.allocator;
