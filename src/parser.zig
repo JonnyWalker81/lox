@@ -41,6 +41,10 @@ pub const Parser = struct {
     }
 
     fn declaration(self: *Self) anyerror!*ast.Statement {
+        if (self.match(.{@tagName(token.TokenType.fun)})) {
+            return self.function("function");
+        }
+
         if (self.match(.{@tagName(token.TokenType.@"var")})) {
             return self.varDeclaration() catch {
                 self.synchronize();
@@ -67,12 +71,21 @@ pub const Parser = struct {
             return try self.printStatement();
         }
 
+        if (self.match(.{@tagName(token.TokenType.@"return")})) {
+            return try self.returnStatement();
+        }
+
         if (self.match(.{@tagName(token.TokenType.@"while")})) {
             return try self.whileStatement();
         }
 
         if (self.match(.{@tagName(token.TokenType.left_brace)})) {
-            return try self.block();
+            const stmts = try self.block();
+            const stmt = try self.arena.allocator().create(ast.Statement);
+            stmt.* = .{
+                .block = stmts,
+            };
+            return stmt;
         }
 
         return try self.expressionStatement();
@@ -221,6 +234,27 @@ pub const Parser = struct {
         return stmt;
     }
 
+    fn returnStatement(self: *Self) !*ast.Statement {
+        const keyword = self.previous();
+        var expr: ?*ast.Expression = null;
+        if (!self.check(@tagName(token.TokenType.semicolon))) {
+            expr = try self.expression();
+        }
+        _ = try self.consume(@tagName(token.TokenType.semicolon), "Expect ';' after return value.");
+        const stmt = try self.arena.allocator().create(ast.Statement);
+        const returnStmt = try self.arena.allocator().create(ast.ReturnStatement);
+        returnStmt.* = .{
+            .keyword = keyword,
+            .expr = expr,
+        };
+
+        stmt.* = .{
+            .returnStmt = returnStmt,
+        };
+
+        return stmt;
+    }
+
     fn varDeclaration(self: *Self) !*ast.Statement {
         const name = try self.consume(@tagName(token.TokenType.identifier), "Expect variable name.");
         var initializer: *ast.Expression = undefined;
@@ -254,17 +288,48 @@ pub const Parser = struct {
         return stmt;
     }
 
-    fn block(self: *Self) !*ast.Statement {
+    fn function(self: *Self, kind: []const u8) !*ast.Statement {
+        var errStr = try std.fmt.allocPrint(self.arena.allocator(), "Expect {s} name", .{kind});
+        const name = try self.consume(@tagName(token.TokenType.identifier), errStr);
+        errStr = try std.fmt.allocPrint(self.arena.allocator(), "Expect '(' after {s} name", .{kind});
+        _ = try self.consume(@tagName(token.TokenType.left_paren), errStr);
+        var parameters = std.ArrayList(token.Token).init(self.arena.allocator());
+        if (!self.check(@tagName(token.TokenType.right_paren))) {
+            _ = try parameters.append(try self.consume(@tagName(token.TokenType.identifier), "Expect parameter name."));
+            while (self.match(.{@tagName(token.TokenType.comma)})) {
+                if (parameters.items.len >= 255) {
+                    lox.Lox.err(self.peek().line, "Cannot have more than 255 parameters.");
+                }
+                _ = try parameters.append(try self.consume(@tagName(token.TokenType.identifier), "Expect parameter name."));
+            }
+        }
+        _ = try self.consume(@tagName(token.TokenType.right_paren), "Expect ')' after parameters.");
+
+        errStr = try std.fmt.allocPrint(self.arena.allocator(), "Expect '{{' before {s} body", .{kind});
+        _ = try self.consume(@tagName(token.TokenType.left_brace), errStr);
+        const body = try self.block();
+        const stmt = try self.arena.allocator().create(ast.Statement);
+        const f = try self.arena.allocator().create(ast.FunctionStatement);
+        f.* = .{
+            .name = name,
+            .parameters = try parameters.toOwnedSlice(),
+            .body = body,
+        };
+
+        stmt.* = .{
+            .function = f,
+        };
+
+        return stmt;
+    }
+
+    fn block(self: *Self) ![]*ast.Statement {
         var statements = std.ArrayList(*ast.Statement).init(self.arena.allocator());
         while (!self.check(@tagName(token.TokenType.right_brace)) and !self.is_at_end()) {
             _ = try statements.append(try self.declaration());
         }
         _ = try self.consume(@tagName(token.TokenType.right_brace), "Expect '}' after block.");
-        const stmt = try self.arena.allocator().create(ast.Statement);
-        stmt.* = .{
-            .block = try statements.toOwnedSlice(),
-        };
-        return stmt;
+        return statements.toOwnedSlice();
     }
 
     fn assignment(self: *Self) anyerror!*ast.Expression {

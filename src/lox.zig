@@ -4,6 +4,7 @@ const token = @import("token.zig");
 const parser = @import("parser.zig");
 const interpreter = @import("interpreter.zig");
 const object = @import("object.zig");
+const resolver = @import("resolver.zig");
 
 pub const Lox = struct {
     const Self = @This();
@@ -56,9 +57,15 @@ pub const Lox = struct {
             return;
         }
 
-        // std.debug.print("expr: {any}\n", .{e});
         var i = interpreter.Interpreter.init(allocator);
         defer i.deinit();
+
+        var r = resolver.Resolver.init(allocator, &i);
+        defer r.deinit();
+
+        try r.resolveStatements(statements);
+
+        // std.debug.print("expr: {any}\n", .{e});
 
         i.interpret(statements) catch |er| {
             std.debug.print("Error: {}\n", .{er});
@@ -158,6 +165,76 @@ test "test while loop" {
     //     \\  print i;
     //     \\}
     // ;
+
+    try Lox.run(arena.allocator(), source);
+}
+
+test "test function" {
+    var arena = std.heap.ArenaAllocator.init(test_allocator);
+    defer arena.deinit();
+
+    const source =
+        \\ fun sayHi(first, last) {
+        \\  print "Hi, " + first + " " + last + "!";
+        \\}
+        \\
+        \\sayHi("Dear", "Reader");
+    ;
+
+    try Lox.run(arena.allocator(), source);
+}
+
+test "test return statement" {
+    var arena = std.heap.ArenaAllocator.init(test_allocator);
+    defer arena.deinit();
+
+    const source =
+        \\ fun foo() {
+        \\  return 1;
+        \\}
+        \\
+        \\print foo();
+    ;
+
+    try Lox.run(arena.allocator(), source);
+}
+
+test "test fib" {
+    var arena = std.heap.ArenaAllocator.init(test_allocator);
+    defer arena.deinit();
+
+    const source =
+        \\fun fib(n) {
+        \\  if (n <= 1) return n;
+        \\  return fib(n - 2) + fib(n - 1);
+        \\}
+        \\
+        \\for (var i = 0; i < 20; i = i + 1) {
+        \\  print fib(i);
+        \\}
+    ;
+
+    try Lox.run(arena.allocator(), source);
+}
+
+test "test make counter" {
+    var arena = std.heap.ArenaAllocator.init(test_allocator);
+    defer arena.deinit();
+
+    const source =
+        \\fun makeCounter() {
+        \\  var i = 0;
+        \\  fun count() {
+        \\    i = i + 1;
+        \\    print i;
+        \\  }
+        \\  return count;
+        \\}
+        \\
+        \\var counter = makeCounter();
+        \\counter();
+        \\counter();
+    ;
 
     try Lox.run(arena.allocator(), source);
 }

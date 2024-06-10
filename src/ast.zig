@@ -33,6 +33,12 @@ pub const Call = struct {
     arguments: []const *Expression,
 };
 
+pub const Function = struct {
+    name: token.Token,
+    parameters: []const token.Token,
+    body: []const *Statement,
+};
+
 pub const Expression = union(enum) {
     const Self = @This();
 
@@ -47,6 +53,7 @@ pub const Expression = union(enum) {
     boolean: bool,
     logical: Logical,
     call: Call,
+    function: Function,
     nil: void,
 
     pub fn format(
@@ -92,6 +99,16 @@ pub const Expression = union(enum) {
             .call => |c| {
                 try parenthesize(writer, c.callee, .{c.arguments});
             },
+            .function => |f| {
+                try writer.print("fn {s}(", .{f.name});
+                for (f.parameters, 0..) |p, i| {
+                    if (i != 0) {
+                        try writer.print(", ", .{});
+                    }
+                    try writer.print("{s}", .{p});
+                }
+                try writer.print(") {any}", .{f.body});
+            },
             .nil => {},
         }
     }
@@ -127,6 +144,17 @@ pub const WhileStatement = struct {
     body: *Statement,
 };
 
+pub const FunctionStatement = struct {
+    name: token.Token,
+    parameters: []const token.Token,
+    body: []const *Statement,
+};
+
+pub const ReturnStatement = struct {
+    keyword: token.Token,
+    expr: ?*Expression,
+};
+
 pub const Statement = union(enum) {
     expressionStatement: *Expression,
     print: *Expression,
@@ -134,6 +162,8 @@ pub const Statement = union(enum) {
     block: []const *Statement,
     ifStmt: *IfStatement,
     whileStmt: *WhileStatement,
+    function: *FunctionStatement,
+    returnStmt: *ReturnStatement,
 };
 
 const test_allocator = std.testing.allocator;

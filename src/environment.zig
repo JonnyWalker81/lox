@@ -72,4 +72,29 @@ pub const Environment = struct {
 
         return EnvironmentErrors.UndefinedVariable;
     }
+
+    pub fn getAt(self: *Self, distance: usize, name: []const u8) !*object.Object {
+        const s = try self.ancestor(distance);
+        if (s.values.get(name)) |v| {
+            return v;
+        }
+
+        return EnvironmentErrors.UndefinedVariable;
+    }
+
+    pub fn ancestor(self: *Self, distance: usize) !*Self {
+        var env = self;
+        for (0..distance) |_| {
+            if (env.enclosing) |e| {
+                env = e;
+            }
+        }
+
+        return env;
+    }
+
+    pub fn assignAt(self: *Self, distance: usize, name: []const u8, value: *object.Object) !void {
+        var s = try self.ancestor(distance);
+        try s.values.put(name, value);
+    }
 };

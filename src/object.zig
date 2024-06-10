@@ -9,10 +9,36 @@ pub const Object = union(enum) {
     number: f64,
     string: []const u8,
     callable: *callable.Callable,
+    returnValue: *Self,
+
+    pub fn isNumber(self: *Self) bool {
+        switch (self.*) {
+            .number => return true,
+            .returnValue => |r| return r.isNumber(),
+            else => return false,
+        }
+    }
+
+    pub fn isString(self: *Self) bool {
+        switch (self.*) {
+            .string => return true,
+            .returnValue => |r| return r.isString(),
+            else => return false,
+        }
+    }
+
+    pub fn isBoolean(self: *Self) bool {
+        switch (self.*) {
+            .boolean => return true,
+            .returnValue => |r| return r.isBoolean(),
+            else => return false,
+        }
+    }
 
     pub fn numberValue(self: *Self) f64 {
         return switch (self.*) {
             .number => |n| return n,
+            .returnValue => |r| return r.numberValue(),
             else => return 0.0,
         };
     }
@@ -20,6 +46,7 @@ pub const Object = union(enum) {
     pub fn stringValue(self: *Self) []const u8 {
         return switch (self.*) {
             .string => |s| return s,
+            .returnValue => |r| return r.stringValue(),
             else => return "",
         };
     }
@@ -28,7 +55,16 @@ pub const Object = union(enum) {
         return switch (self.*) {
             .boolean => |b| return b,
             .number => |_| return true,
+            .returnValue => |r| return r.booleanValue(),
             else => return false,
+        };
+    }
+
+    pub fn callableValue(self: *Self) *callable.Callable {
+        return switch (self.*) {
+            .callable => |c| return c,
+            .returnValue => |r| return r.callableValue(),
+            else => std.debug.panic("not callable", .{}),
         };
     }
 
@@ -54,6 +90,9 @@ pub const Object = union(enum) {
             },
             .callable => |_| {
                 try writer.print("callable", .{});
+            },
+            .returnValue => |r| {
+                try writer.print("{s}", .{r});
             },
         }
     }

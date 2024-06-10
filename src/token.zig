@@ -145,4 +145,8 @@ pub const Token = struct {
         try writer.print("token {s}: line - {d}", .{ self.typ, self.line });
         // try writer.print("{s}", .{self.typ});
     }
+
+    pub fn toString(self: *const Self, allocator: std.mem.Allocator) []const u8 {
+        return std.fmt.allocPrint(allocator, "{s}", .{self.typ}) catch unreachable;
+    }
 };
