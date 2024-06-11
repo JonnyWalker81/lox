@@ -92,6 +92,13 @@ pub const Resolver = struct {
             .logical => |l| {
                 try self.resolveLogicalExpr(&l);
             },
+            .get => |g| {
+                try self.resolveExpression(g.object);
+            },
+            .set => |s| {
+                try self.resolveExpression(s.value);
+                try self.resolveExpression(s.object);
+            },
             else => {},
         }
     }

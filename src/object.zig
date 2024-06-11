@@ -72,6 +72,14 @@ pub const Object = union(enum) {
         };
     }
 
+    pub fn isInstance(self: *Self) bool {
+        return switch (self.*) {
+            .implementation => |_| return true,
+            .returnValue => |r| return r.isInstance(),
+            else => return false,
+        };
+    }
+
     pub fn format(
         self: Self,
         comptime fmt: []const u8,

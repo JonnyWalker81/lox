@@ -39,6 +39,17 @@ pub const Function = struct {
     body: []const *Statement,
 };
 
+pub const GetExpr = struct {
+    object: *Expression,
+    name: token.Token,
+};
+
+pub const SetExpr = struct {
+    object: *Expression,
+    name: token.Token,
+    value: *Expression,
+};
+
 pub const Expression = union(enum) {
     const Self = @This();
 
@@ -54,6 +65,8 @@ pub const Expression = union(enum) {
     logical: Logical,
     call: Call,
     function: Function,
+    get: GetExpr,
+    set: SetExpr,
     nil: void,
 
     pub fn format(
@@ -108,6 +121,12 @@ pub const Expression = union(enum) {
                     try writer.print("{s}", .{p});
                 }
                 try writer.print(") {any}", .{f.body});
+            },
+            .get => |g| {
+                try writer.print("{s}.{s}", .{ g.object, g.name });
+            },
+            .set => |s| {
+                try writer.print("{s}.{s} = {s}", .{ s.object, s.name, s.value });
             },
             .nil => {},
         }

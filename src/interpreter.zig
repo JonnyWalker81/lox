@@ -7,7 +7,12 @@ const callable = @import("callable.zig");
 const token = @import("token.zig");
 const class = @import("class.zig");
 
-const InterpreterErrors = error{ UnexpectedExpression, UnexpectedStatement, FunctionArityMismatch };
+const InterpreterErrors = error{
+    UnexpectedExpression,
+    UnexpectedStatement,
+    FunctionArityMismatch,
+    NonInstancePropertyAccess,
+};
 
 pub const Interpreter = struct {
     const Self = @This();
@@ -323,6 +328,12 @@ pub const Interpreter = struct {
             .call => |c| {
                 return try self.evalCall(&c);
             },
+            .get => |g| {
+                return try self.evalGet(&g);
+            },
+            .set => |s| {
+                return self.evalSet(&s);
+            },
             else => {
                 std.log.warn("Unexpected expression: {}\n", .{expr});
                 std.log.warn("Unexpected expression: {s}\n", .{@tagName(expr.*)});
@@ -339,6 +350,28 @@ pub const Interpreter = struct {
         } else {
             return self.globals.get(varName);
         }
+    }
+
+    fn evalSet(self: *Self, expr: *const ast.SetExpr) anyerror!*object.Object {
+        const obj = try self.evaluate(expr.object);
+        if (!obj.isInstance()) {
+            return InterpreterErrors.NonInstancePropertyAccess;
+        }
+
+        const value = try self.evaluate(expr.value);
+        try obj.implementation.set(expr.name, value);
+        return value;
+    }
+
+    fn evalGet(self: *Self, expr: *const ast.GetExpr) anyerror!*object.Object {
+        const obj = try self.evaluate(expr.object);
+        if (obj.isInstance()) {
+            if (try obj.implementation.get(expr.name)) |o| {
+                return o;
+            }
+        }
+
+        return InterpreterErrors.NonInstancePropertyAccess;
     }
 
     fn evalCall(self: *Self, expr: *const ast.Call) anyerror!*object.Object {

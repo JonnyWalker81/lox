@@ -1,6 +1,7 @@
 const std = @import("std");
 const interpreter = @import("interpreter.zig");
 const object = @import("object.zig");
+const token = @import("token.zig");
 
 pub const LoxClass = struct {
     const Self = @This();
@@ -55,15 +56,38 @@ pub const LoxInstance = struct {
 
     allocator: std.mem.Allocator,
     klass: *LoxClass,
+    fields: std.StringHashMap(*object.Object),
 
     pub fn init(allocator: std.mem.Allocator, klass: *LoxClass) *Self {
         const instance = allocator.create(Self) catch unreachable;
         instance.* = .{
             .allocator = allocator,
             .klass = klass,
+            .fields = std.StringHashMap(*object.Object).init(allocator),
         };
 
         return instance;
+    }
+
+    pub fn get(
+        self: *Self,
+        name: token.Token,
+    ) anyerror!?*object.Object {
+        const nameStr = name.toString(self.allocator);
+        if (self.fields.contains(nameStr)) {
+            return self.fields.get(nameStr);
+        }
+
+        return error.UndefinedProperty;
+    }
+
+    pub fn set(
+        self: *Self,
+        name: token.Token,
+        value: *object.Object,
+    ) anyerror!void {
+        const nameStr = name.toString(self.allocator);
+        try self.fields.put(nameStr, value);
     }
 
     pub fn format(

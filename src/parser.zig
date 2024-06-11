@@ -390,6 +390,17 @@ pub const Parser = struct {
                 };
                 // std.log.warn("Assignment: {s}\n", .{assign});
                 return assign;
+            } else if (expr.* == ast.Expression.get) {
+                const get = expr.get;
+                const assign = try self.arena.allocator().create(ast.Expression);
+                assign.* = .{
+                    .set = .{
+                        .object = get.object,
+                        .name = get.name,
+                        .value = value,
+                    },
+                };
+                return assign;
             }
 
             try self.err(equals, "Invalid assignment target.");
@@ -573,6 +584,16 @@ pub const Parser = struct {
         while (true) {
             if (self.match(.{@tagName(token.TokenType.left_paren)})) {
                 expr = try self.finishCall(expr);
+            } else if (self.match(.{@tagName(token.TokenType.dot)})) {
+                const name = try self.consume(@tagName(token.TokenType.identifier), "Expect property name after '.'.");
+                const expr2 = try self.arena.allocator().create(ast.Expression);
+                expr2.* = .{
+                    .get = .{
+                        .object = expr,
+                        .name = name,
+                    },
+                };
+                expr = expr2;
             } else {
                 break;
             }
