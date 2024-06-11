@@ -70,6 +70,10 @@ pub const Callable = struct {
             },
         };
     }
+
+    pub fn inner(self: Callable, comptime T: anytype) *T {
+        return @ptrCast(@alignCast(self.ptr));
+    }
 };
 
 pub const Clock = struct {

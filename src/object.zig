@@ -1,5 +1,6 @@
 const std = @import("std");
 const callable = @import("callable.zig");
+const class = @import("class.zig");
 
 pub const Object = union(enum) {
     const Self = @This();
@@ -10,6 +11,8 @@ pub const Object = union(enum) {
     string: []const u8,
     callable: *callable.Callable,
     returnValue: *Self,
+    class: *callable.Callable,
+    implementation: *class.LoxInstance,
 
     pub fn isNumber(self: *Self) bool {
         switch (self.*) {
@@ -64,6 +67,7 @@ pub const Object = union(enum) {
         return switch (self.*) {
             .callable => |c| return c,
             .returnValue => |r| return r.callableValue(),
+            .class => |c| return c,
             else => std.debug.panic("not callable", .{}),
         };
     }
@@ -93,6 +97,12 @@ pub const Object = union(enum) {
             },
             .returnValue => |r| {
                 try writer.print("{s}", .{r});
+            },
+            .class => |c| {
+                try writer.print("{s}", .{c.inner(class.LoxClass)});
+            },
+            .implementation => |i| {
+                try writer.print("{s}", .{i});
             },
         }
     }

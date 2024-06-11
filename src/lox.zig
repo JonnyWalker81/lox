@@ -65,6 +65,10 @@ pub const Lox = struct {
 
         try r.resolveStatements(statements);
 
+        if (inner.hadError) {
+            return;
+        }
+
         // std.debug.print("expr: {any}\n", .{e});
 
         i.interpret(statements) catch |er| {
@@ -234,6 +238,50 @@ test "test make counter" {
         \\var counter = makeCounter();
         \\counter();
         \\counter();
+    ;
+
+    try Lox.run(arena.allocator(), source);
+}
+
+test "test variable already declared" {
+    var arena = std.heap.ArenaAllocator.init(test_allocator);
+    defer arena.deinit();
+
+    const source =
+        \\fun bad() {
+        \\  var a = 1;
+        \\  var a = 2;
+        \\}
+    ;
+
+    try Lox.run(arena.allocator(), source);
+}
+
+test "test class name" {
+    var arena = std.heap.ArenaAllocator.init(test_allocator);
+    defer arena.deinit();
+
+    const source =
+        \\class DevonshireCream {
+        \\  serveOn() {
+        \\    return "Sconess";
+        \\  }
+        \\}
+        \\
+        \\print DevonshireCream;
+    ;
+
+    try Lox.run(arena.allocator(), source);
+}
+
+test "test class instance simple" {
+    var arena = std.heap.ArenaAllocator.init(test_allocator);
+    defer arena.deinit();
+
+    const source =
+        \\class Bagel {}
+        \\var bagel = Bagel();
+        \\print bagel;
     ;
 
     try Lox.run(arena.allocator(), source);

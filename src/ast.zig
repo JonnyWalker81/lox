@@ -155,6 +155,11 @@ pub const ReturnStatement = struct {
     expr: ?*Expression,
 };
 
+pub const ClassStatement = struct {
+    name: token.Token,
+    methods: []const *FunctionStatement,
+};
+
 pub const Statement = union(enum) {
     expressionStatement: *Expression,
     print: *Expression,
@@ -164,6 +169,7 @@ pub const Statement = union(enum) {
     whileStmt: *WhileStatement,
     function: *FunctionStatement,
     returnStmt: *ReturnStatement,
+    classStmt: *ClassStatement,
 };
 
 const test_allocator = std.testing.allocator;

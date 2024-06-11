@@ -41,8 +41,16 @@ pub const Parser = struct {
     }
 
     fn declaration(self: *Self) anyerror!*ast.Statement {
+        if (self.match(.{@tagName(token.TokenType.class)})) {
+            return self.classDeclaration();
+        }
+
         if (self.match(.{@tagName(token.TokenType.fun)})) {
-            return self.function("function");
+            const fun = try self.arena.allocator().create(ast.Statement);
+            fun.* = .{
+                .function = try self.function("function"),
+            };
+            return fun;
         }
 
         if (self.match(.{@tagName(token.TokenType.@"var")})) {
@@ -56,6 +64,43 @@ pub const Parser = struct {
             self.synchronize();
             return ParseErrors.ParseError;
         };
+    }
+
+    pub fn classDeclaration(self: *Self) !*ast.Statement {
+        const name = try self.consume(@tagName(token.TokenType.identifier), "Expect class name.");
+        _ = try self.consume(@tagName(token.TokenType.left_brace), "Expect '{' before class body.");
+
+        // var superclass: ?*ast.Expression = null;
+        // if (self.match(.{@tagName(token.TokenType.less)})) {
+        //     _ = try self.consume(@tagName(token.TokenType.identifier), "Expect superclass name.");
+        //     superclass = try self.arena.allocator().create(ast.Expression);
+        //     superclass.* = .{
+        //         .variable = self.previous(),
+        //     };
+        // }
+
+        // _ = try self.consume(@tagName(token.TokenType.left_brace), "Expect '{' before class body.");
+
+        var methods = std.ArrayList(*ast.FunctionStatement).init(self.arena.allocator());
+        while (!self.check(@tagName(token.TokenType.right_brace)) and !self.is_at_end()) {
+            _ = try methods.append(try self.function("method"));
+        }
+
+        _ = try self.consume(@tagName(token.TokenType.right_brace), "Expect '}' after class body.");
+
+        const stmt = try self.arena.allocator().create(ast.Statement);
+        const class = try self.arena.allocator().create(ast.ClassStatement);
+        class.* = .{
+            .name = name,
+            // .superclass = superclass,
+            .methods = try methods.toOwnedSlice(),
+        };
+
+        stmt.* = .{
+            .classStmt = class,
+        };
+
+        return stmt;
     }
 
     pub fn statement(self: *Self) anyerror!*ast.Statement {
@@ -161,7 +206,6 @@ pub const Parser = struct {
             // const bbb = try self.arena.allocator().create(ast.Statement);
             // bbb. = &[_]*ast.Statement{ initializer.?, bb };
             var stmts = std.ArrayList(*ast.Statement).init(self.arena.allocator());
-            // std.log.warn("Initializer: {any}\n", .{initializer});
             try stmts.append(in);
             try stmts.append(bodyWhile.?);
             bodyFinal.?.* = .{
@@ -288,7 +332,7 @@ pub const Parser = struct {
         return stmt;
     }
 
-    fn function(self: *Self, kind: []const u8) !*ast.Statement {
+    fn function(self: *Self, kind: []const u8) !*ast.FunctionStatement {
         var errStr = try std.fmt.allocPrint(self.arena.allocator(), "Expect {s} name", .{kind});
         const name = try self.consume(@tagName(token.TokenType.identifier), errStr);
         errStr = try std.fmt.allocPrint(self.arena.allocator(), "Expect '(' after {s} name", .{kind});
@@ -308,7 +352,6 @@ pub const Parser = struct {
         errStr = try std.fmt.allocPrint(self.arena.allocator(), "Expect '{{' before {s} body", .{kind});
         _ = try self.consume(@tagName(token.TokenType.left_brace), errStr);
         const body = try self.block();
-        const stmt = try self.arena.allocator().create(ast.Statement);
         const f = try self.arena.allocator().create(ast.FunctionStatement);
         f.* = .{
             .name = name,
@@ -316,11 +359,7 @@ pub const Parser = struct {
             .body = body,
         };
 
-        stmt.* = .{
-            .function = f,
-        };
-
-        return stmt;
+        return f;
     }
 
     fn block(self: *Self) ![]*ast.Statement {

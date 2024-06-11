@@ -4,12 +4,20 @@ const ast = @import("ast.zig");
 const lox = @import("lox.zig");
 const token = @import("token.zig");
 
+const FunctionType = enum {
+    none,
+    function,
+    // INITIALIZER,
+    // METHOD,
+};
+
 pub const Resolver = struct {
     const Self = @This();
 
     allocator: std.mem.Allocator,
     interpreter: *interpreter.Interpreter,
     scopes: std.ArrayList(std.StringHashMap(bool)),
+    currentFunction: FunctionType = .none,
 
     pub fn init(allocator: std.mem.Allocator, i: *interpreter.Interpreter) Self {
         return Self{
@@ -35,7 +43,7 @@ pub const Resolver = struct {
                 try self.resolveVariableStmt(v);
             },
             .function => |f| {
-                try self.resolveFunction(f);
+                try self.resolveFunction(f, .function);
             },
             .expressionStatement => |e| {
                 try self.resolveExpression(e);
@@ -52,7 +60,12 @@ pub const Resolver = struct {
             .whileStmt => |w| {
                 try self.resolveWhile(w);
             },
-            else => {},
+            .block => |b| {
+                try self.resolveBlock(b);
+            },
+            .classStmt => |c| {
+                try self.resolveClassStmt(c);
+            },
         }
     }
 
@@ -83,23 +96,47 @@ pub const Resolver = struct {
         }
     }
 
-    fn resolveBlock(self: *Self, block: *ast.Block) !void {
+    fn resolveClassStmt(self: *Self, c: *ast.ClassStatement) !void {
+        try self.declare(c.name);
+        try self.define(c.name);
+
+        // const enclosingClass = self.currentClass;
+        // self.currentClass = .class;
+        // try self.beginScope();
+        // try self.scopes.items[self.scopes.items.len - 1].put("this", true);
+
+        // for (c.methods) |m| {
+        //     var declaration = .method;
+        //     if (m.name.lexeme == "init") {
+        //         declaration = .initializer;
+        //     }
+        //     try self.resolveFunction(m, declaration);
+        // }
+
+        // try self.endScope();
+        // self.currentClass = enclosingClass;
+    }
+
+    fn resolveBlock(self: *Self, block: []const *ast.Statement) !void {
         try self.beginScope();
-        try self.resolveStatements(block.statements);
+        try self.resolveStatements(block);
         try self.endScope();
     }
 
-    fn resolveFunction(self: *Self, f: *ast.FunctionStatement) !void {
-        try self.declare(f.name.toString(self.allocator));
-        try self.define(f.name.toString(self.allocator));
+    fn resolveFunction(self: *Self, f: *ast.FunctionStatement, typ: FunctionType) !void {
+        try self.declare(f.name);
+        try self.define(f.name);
 
+        const enclosingFunction = self.currentFunction;
+        self.currentFunction = typ;
         try self.beginScope();
         for (f.parameters) |p| {
-            try self.declare(p.toString(self.allocator));
-            try self.define(p.toString(self.allocator));
+            try self.declare(p);
+            try self.define(p);
         }
         try self.resolveStatements(f.body);
         try self.endScope();
+        self.currentFunction = enclosingFunction;
     }
 
     fn resolveIf(self: *Self, i: *ast.IfStatement) !void {
@@ -115,6 +152,10 @@ pub const Resolver = struct {
     }
 
     fn resolveReturn(self: *Self, r: *ast.ReturnStatement) !void {
+        if (self.currentFunction == .none) {
+            lox.Lox.err(r.keyword.line, "Cannot return from top-level code.");
+        }
+
         if (r.expr) |v| {
             try self.resolveExpression(v);
         }
@@ -126,11 +167,11 @@ pub const Resolver = struct {
     }
 
     fn resolveVariableStmt(self: *Self, v: *ast.Variable) !void {
-        try self.declare(v.name.toString(self.allocator));
+        try self.declare(v.name);
         if (v.initializer) |i| {
             try self.resolveExpression(i);
         }
-        try self.define(v.name.toString(self.allocator));
+        try self.define(v.name);
     }
 
     fn resolveAssignment(self: *Self, expr: *ast.Expression, a: *const ast.Assignment) !void {
@@ -140,7 +181,7 @@ pub const Resolver = struct {
 
     fn resolveVariableExpr(self: *Self, expr: *ast.Expression, v: token.Token) !void {
         if (self.scopes.items.len > 0) {
-            const scope = self.scopes.items[self.scopes.items.len - 1];
+            const scope = &self.scopes.items[self.scopes.items.len - 1];
             if (scope.get(v.toString(self.allocator))) |b| {
                 if (!b) {
                     lox.Lox.err(v.line, "Cannot read local variable in its own initializer.");
@@ -177,7 +218,6 @@ pub const Resolver = struct {
     }
 
     fn resolveLocal(self: *Self, expr: *ast.Expression, name: token.Token) !void {
-        std.debug.print("scopes: {}\n", .{self.scopes.items.len});
         if (self.scopes.items.len == 0) {
             return;
         }
@@ -200,24 +240,26 @@ pub const Resolver = struct {
         _ = self.scopes.pop();
     }
 
-    fn declare(self: *Self, name: []const u8) !void {
+    fn declare(self: *Self, name: token.Token) !void {
         if (self.scopes.items.len == 0) {
             return;
         }
 
-        var scope = self.scopes.items[self.scopes.items.len - 1];
-        // if (scope.get(name)) {
-        //     return Err.Error("Variable with this name already declared in this scope.");
-        // }
-        try scope.put(name, false);
+        const nameStr = name.toString(self.allocator);
+        var scope = &self.scopes.items[self.scopes.items.len - 1];
+        if (scope.contains(nameStr)) {
+            return lox.Lox.err(name.line, "Variable with this name already declared in this scope.");
+        }
+        try scope.put(nameStr, false);
     }
 
-    fn define(self: *Self, name: []const u8) !void {
+    fn define(self: *Self, name: token.Token) !void {
         if (self.scopes.items.len == 0) {
             return;
         }
 
-        var scope = self.scopes.items[self.scopes.items.len - 1];
-        try scope.put(name, true);
+        const nameStr = name.toString(self.allocator);
+        var scope = &self.scopes.items[self.scopes.items.len - 1];
+        try scope.put(nameStr, true);
     }
 };

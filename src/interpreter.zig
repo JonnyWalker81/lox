@@ -5,6 +5,7 @@ const env = @import("environment.zig");
 const lox = @import("lox.zig");
 const callable = @import("callable.zig");
 const token = @import("token.zig");
+const class = @import("class.zig");
 
 const InterpreterErrors = error{ UnexpectedExpression, UnexpectedStatement, FunctionArityMismatch };
 
@@ -17,6 +18,7 @@ pub const Interpreter = struct {
     locals: std.AutoHashMap(*ast.Expression, usize),
 
     pub fn init(allocator: std.mem.Allocator) Interpreter {
+        // var arena = std.heap.ArenaAllocator.init(allocator);
         const globals = env.Environment.init(allocator);
         const clockCallable = allocator.create(callable.Callable) catch unreachable;
         const clock = allocator.create(callable.Clock) catch unreachable;
@@ -32,6 +34,7 @@ pub const Interpreter = struct {
 
         return Interpreter{
             .arena = std.heap.ArenaAllocator.init(allocator),
+            // .arena = arena,
             .environment = globals,
             .globals = globals,
             .locals = std.AutoHashMap(*ast.Expression, usize).init(allocator),
@@ -66,16 +69,7 @@ pub const Interpreter = struct {
                     self.environment,
                 );
 
-                // const ReturnValue = struct {
-                //     value: ?*object.Object = null,
-                // };
-
-                // var payload = ReturnValue{ .value = null };
-                // var opts = .{ .error_payload = &payload };
-
-                const v = self.executeBlock(b, e);
-
-                return v;
+                return self.executeBlock(b, e);
             },
             .ifStmt => |i| {
                 return self.evalIfStatement(i);
@@ -89,6 +83,9 @@ pub const Interpreter = struct {
             .returnStmt => |r| {
                 return self.evalReturn(r);
             },
+            .classStmt => |c| {
+                return self.evalClassStatement(c);
+            },
         }
     }
 
@@ -96,8 +93,24 @@ pub const Interpreter = struct {
         try self.locals.put(expr, depth);
     }
 
+    fn evalClassStatement(self: *Self, stmt: *ast.ClassStatement) anyerror!*object.Object {
+        const className = stmt.name.toString(self.arena.allocator());
+        const nullInit = try self.nullObj();
+        try self.environment.define(className, nullInit);
+        const klass = class.LoxClass.init(self.arena.allocator(), className);
+
+        const klassCallable = try self.arena.allocator().create(callable.Callable);
+
+        klassCallable.* = callable.Callable.init(klass);
+
+        const classObj = try self.arena.allocator().create(object.Object);
+        classObj.* = .{ .class = klassCallable };
+        try self.environment.assign(className, classObj);
+
+        return classObj;
+    }
+
     fn evalReturn(self: *Self, r: *ast.ReturnStatement) anyerror!*object.Object {
-        // std.debug.print("Evaluating return statement: {}\n", .{r});
         if (r.expr) |v| {
             const stmt = try self.arena.allocator().create(object.Object);
             const obj = try self.evaluate(v);
@@ -143,7 +156,6 @@ pub const Interpreter = struct {
         if (isTruthy(condition)) {
             const obj = try self.execute(stmt.thenBranch);
             if (obj.* == .returnValue) {
-                // std.debug.print("Returning from if statement: {any}\n", .{obj});
                 return obj;
             }
         } else if (stmt.elseBranch) |e| {
@@ -158,7 +170,9 @@ pub const Interpreter = struct {
 
     pub fn executeBlock(self: *Self, block: []const *ast.Statement, environment: *env.Environment) anyerror!*object.Object {
         const previous = self.environment;
-        defer self.environment = previous;
+        defer {
+            self.environment = previous;
+        }
 
         // std.log.warn("Statements: {any}", .{block});
         self.environment = environment;
@@ -219,7 +233,6 @@ pub const Interpreter = struct {
                     const str = try std.fmt.allocPrint(self.arena.allocator(), "{s}{s}", .{ left.stringValue(), right.stringValue() });
                     obj.* = .{ .string = str };
                 } else {
-                    // std.debug.print("plus...{s}, {s} => {s} {}\n", .{ left, right, @tagName(left.*), right.numberValue() });
                     return InterpreterErrors.UnexpectedExpression;
                 }
             },
@@ -299,10 +312,6 @@ pub const Interpreter = struct {
                 return try self.evalBinary(&b);
             },
             .variable => |v| {
-                // const name = try std.fmt.allocPrint(self.arena.allocator(), "{}", .{v.typ});
-                // std.debug.print("Evaluating variable: {s}\n", .{name});
-                // const obj = self.environment.get(name);
-                // std.debug.print("Variable object: {any}\n", .{obj});
                 return self.lookupVariable(v, expr);
             },
             .assignment => |a| {
@@ -333,7 +342,6 @@ pub const Interpreter = struct {
     }
 
     fn evalCall(self: *Self, expr: *const ast.Call) anyerror!*object.Object {
-        // std.debug.print("Evaluating call: {any}\n", .{expr});
         const callee = try self.evaluate(expr.callee);
         var arguments = std.ArrayList(*object.Object).init(self.arena.allocator());
         for (expr.arguments) |arg| {
@@ -347,7 +355,6 @@ pub const Interpreter = struct {
         }
 
         if (try function.call(self, try arguments.toOwnedSlice())) |o| {
-            // std.debug.print("Function call returned: {any}\n", .{o});
             return o;
         } else {
             const nil = try self.arena.allocator().create(object.Object);
@@ -389,7 +396,7 @@ pub const Interpreter = struct {
             value = try self.evaluate(i);
         }
 
-        const name = try std.fmt.allocPrint(self.arena.allocator(), "{}", .{stmt.name.typ});
+        const name = stmt.name.toString(self.arena.allocator());
         try self.environment.define(name, value);
         return self.nullObj();
     }

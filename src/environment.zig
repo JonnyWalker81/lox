@@ -23,6 +23,8 @@ pub const Environment = struct {
     }
 
     pub fn initWithEnclosing(allocator: std.mem.Allocator, env: *Self) *Self {
+        // env.dumpValues();
+
         const e = allocator.create(Self) catch unreachable;
         e.* = .{
             .allocator = allocator,
@@ -34,18 +36,35 @@ pub const Environment = struct {
     }
 
     pub fn deinit(self: *Self) void {
+        // self.dumpValues();
         self.values.deinit();
     }
 
+    pub fn dumpValues(self: *Self) void {
+        std.log.warn("Env Dumping values...", .{});
+        var valuesIter = self.values.iterator();
+        while (valuesIter.next()) |entry| {
+            std.log.warn("Entry: {s} -> {s}", .{ entry.key_ptr.*, entry.value_ptr.* });
+        }
+
+        if (self.enclosing) |e| {
+            std.log.warn("Env Enclosing environment...", .{});
+            e.dumpValues();
+        }
+        std.log.warn("Env Done Dumping values...", .{});
+    }
+
     pub fn define(self: *Self, name: []const u8, value: *object.Object) !void {
-        // std.log.warn("Defining variable: {s}", .{name});
+        // std.log.warn("Defining variable: {s} to {s}", .{ name, value });
         try self.values.put(name, value);
+        // self.dumpValues();
         // std.log.warn("Defined variable: {}", .{self.values});
     }
 
     pub fn get(self: *Self, name: []const u8) !*object.Object {
-        // std.log.warn("Getting variable: {s}", .{name});
         // std.log.warn("Defined variable map: {}", .{self.values});
+        // self.dumpValues();
+
         const v = self.values.get(name);
         if (v) |val| {
             return val;
@@ -59,7 +78,7 @@ pub const Environment = struct {
     }
 
     pub fn assign(self: *Self, name: []const u8, value: *object.Object) !void {
-        // std.log.warn("Assigning variable: {s}", .{name});
+        // std.log.warn("Assigning variable: {s} to {s}", .{ name, value });
         if (self.values.contains(name)) {
             try self.values.put(name, value);
             return;
