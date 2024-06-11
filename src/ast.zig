@@ -50,11 +50,20 @@ pub const SetExpr = struct {
     value: *Expression,
 };
 
+pub const VariableExpr = struct {
+    name: token.Token,
+};
+
+pub const Super = struct {
+    keyword: token.Token,
+    method: token.Token,
+};
+
 pub const Expression = union(enum) {
     const Self = @This();
 
     assignment: Assignment,
-    variable: token.Token,
+    variable: VariableExpr,
     literal: *Expression,
     binary: BinaryExpr,
     unary: UnaryExpr,
@@ -67,6 +76,8 @@ pub const Expression = union(enum) {
     function: Function,
     get: GetExpr,
     set: SetExpr,
+    this: token.Token,
+    super: Super,
     nil: void,
 
     pub fn format(
@@ -83,7 +94,7 @@ pub const Expression = union(enum) {
                 try writer.print("{s} = {s}", .{ a.name, a.value });
             },
             .variable => |i| {
-                try writer.print("{s}", .{i.typ});
+                try writer.print("{s}", .{i.name.typ});
             },
             .literal => |l| {
                 try writer.print("{s}", .{l});
@@ -127,6 +138,12 @@ pub const Expression = union(enum) {
             },
             .set => |s| {
                 try writer.print("{s}.{s} = {s}", .{ s.object, s.name, s.value });
+            },
+            .this => |t| {
+                try writer.print("{s}", .{t.typ});
+            },
+            .super => |s| {
+                try writer.print("{s}.{s}", .{ s.keyword, s.method });
             },
             .nil => {},
         }
@@ -176,6 +193,7 @@ pub const ReturnStatement = struct {
 
 pub const ClassStatement = struct {
     name: token.Token,
+    superclass: ?*Expression,
     methods: []const *FunctionStatement,
 };
 

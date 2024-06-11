@@ -7,8 +7,8 @@ const token = @import("token.zig");
 const FunctionType = enum {
     none,
     function,
-    // INITIALIZER,
-    // METHOD,
+    initializer,
+    method,
 };
 
 pub const Resolver = struct {
@@ -72,7 +72,7 @@ pub const Resolver = struct {
     fn resolveExpression(self: *Self, expr: *ast.Expression) anyerror!void {
         switch (expr.*) {
             .variable => |v| {
-                try self.resolveVariableExpr(expr, v);
+                try self.resolveVariableExpr(expr, &v);
             },
             .assignment => |a| {
                 try self.resolveAssignment(expr, &a);
@@ -99,28 +99,50 @@ pub const Resolver = struct {
                 try self.resolveExpression(s.value);
                 try self.resolveExpression(s.object);
             },
+            .this => |t| {
+                try self.resolveLocal(expr, t);
+            },
             else => {},
         }
     }
 
     fn resolveClassStmt(self: *Self, c: *ast.ClassStatement) !void {
+        // const enclosingClass = self.currentClass;
+        // self.currentClass = .class;
+
         try self.declare(c.name);
         try self.define(c.name);
 
-        // const enclosingClass = self.currentClass;
-        // self.currentClass = .class;
-        // try self.beginScope();
-        // try self.scopes.items[self.scopes.items.len - 1].put("this", true);
+        if (c.superclass) |s| {
+            try self.beginScope();
+            var scopes = &self.scopes.items[self.scopes.items.len - 1];
+            try scopes.put("super", true);
+            const className = c.name.toString(self.allocator);
+            const superName = s.variable.name.toString(self.allocator);
+            if (std.mem.eql(u8, className, superName)) {
+                lox.Lox.err(s.variable.name.line, "A class cannot inherit from itself.");
+            }
 
-        // for (c.methods) |m| {
-        //     var declaration = .method;
-        //     if (m.name.lexeme == "init") {
-        //         declaration = .initializer;
-        //     }
-        //     try self.resolveFunction(m, declaration);
-        // }
+            try self.resolveExpression(s);
+        }
 
-        // try self.endScope();
+        try self.beginScope();
+        var scopes = &self.scopes.items[self.scopes.items.len - 1];
+        try scopes.put("this", true);
+
+        for (c.methods) |m| {
+            var declaration: FunctionType = .method;
+            const methodName = m.name.toString(self.allocator);
+            if (std.mem.eql(u8, methodName, "init")) {
+                declaration = .initializer;
+            }
+            try self.resolveFunction(m, declaration);
+        }
+
+        try self.endScope();
+        if (c.superclass) |_| {
+            try self.endScope();
+        }
         // self.currentClass = enclosingClass;
     }
 
@@ -164,6 +186,10 @@ pub const Resolver = struct {
         }
 
         if (r.expr) |v| {
+            if (self.currentFunction == .initializer) {
+                lox.Lox.err(r.keyword.line, "Cannot return a value from an initializer.");
+            }
+
             try self.resolveExpression(v);
         }
     }
@@ -186,17 +212,17 @@ pub const Resolver = struct {
         try self.resolveLocal(expr, a.name);
     }
 
-    fn resolveVariableExpr(self: *Self, expr: *ast.Expression, v: token.Token) !void {
+    fn resolveVariableExpr(self: *Self, expr: *ast.Expression, v: *const ast.VariableExpr) !void {
         if (self.scopes.items.len > 0) {
             const scope = &self.scopes.items[self.scopes.items.len - 1];
-            if (scope.get(v.toString(self.allocator))) |b| {
+            if (scope.get(v.name.toString(self.allocator))) |b| {
                 if (!b) {
-                    lox.Lox.err(v.line, "Cannot read local variable in its own initializer.");
+                    lox.Lox.err(v.name.line, "Cannot read local variable in its own initializer.");
                 }
             }
         }
 
-        try self.resolveLocal(expr, v);
+        try self.resolveLocal(expr, v.name);
     }
 
     fn resolveBinaryExpr(self: *Self, b: *const ast.BinaryExpr) !void {

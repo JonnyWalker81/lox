@@ -112,13 +112,33 @@ pub const LoxFunction = struct {
     allocator: std.mem.Allocator,
     declaration: *ast.FunctionStatement,
     closure: *environment.Environment,
+    isInitializer: bool = false,
 
-    pub fn init(allocator: std.mem.Allocator, declaration: *ast.FunctionStatement, closure: *environment.Environment) Self {
+    pub fn init(allocator: std.mem.Allocator, declaration: *ast.FunctionStatement, closure: *environment.Environment, isInitializer: bool) Self {
         return .{
             .allocator = allocator,
             .declaration = declaration,
             .closure = closure,
+            .isInitializer = isInitializer,
         };
+    }
+
+    pub fn bind(
+        self: *Self,
+        method: *object.Object,
+    ) anyerror!*object.Object {
+        var env = environment.Environment.initWithEnclosing(self.allocator, self.closure);
+        try env.define("this", method);
+        const bound = try self.allocator.create(object.Object);
+        const c = try self.allocator.create(Callable);
+        const func = try self.allocator.create(LoxFunction);
+        func.* = LoxFunction.init(self.allocator, self.declaration, env, self.isInitializer);
+        c.* = Callable.init(func);
+        bound.* = .{
+            .callable = c,
+        };
+
+        return bound;
     }
 
     pub fn arity(self: *Self) usize {
@@ -138,7 +158,15 @@ pub const LoxFunction = struct {
         if (obj.* == .returnValue) {
             // std.debug.print("return value: {}\n", .{obj.returnValue});
             // std.log.warn("return value: {}\n", .{obj.returnValue});
+            if (self.isInitializer) {
+                return self.closure.getAt(0, "this");
+            }
+
             return obj;
+        }
+
+        if (self.isInitializer) {
+            return self.closure.getAt(0, "this");
         }
 
         // return i.env.getAt(0, "return");

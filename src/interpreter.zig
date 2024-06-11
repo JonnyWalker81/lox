@@ -12,6 +12,7 @@ const InterpreterErrors = error{
     UnexpectedStatement,
     FunctionArityMismatch,
     NonInstancePropertyAccess,
+    NonClassSuperclass,
 };
 
 pub const Interpreter = struct {
@@ -99,10 +100,38 @@ pub const Interpreter = struct {
     }
 
     fn evalClassStatement(self: *Self, stmt: *ast.ClassStatement) anyerror!*object.Object {
+        var superclass: ?*object.Object = null;
+        if (stmt.superclass) |s| {
+            superclass = try self.evaluate(s);
+            if (superclass) |super| {
+                if (!super.isClass()) {
+                    return InterpreterErrors.NonClassSuperclass;
+                }
+            }
+        }
+
         const className = stmt.name.toString(self.arena.allocator());
         const nullInit = try self.nullObj();
         try self.environment.define(className, nullInit);
-        const klass = class.LoxClass.init(self.arena.allocator(), className);
+
+        var methods = std.StringHashMap(*object.Object).init(self.arena.allocator());
+        for (stmt.methods) |method| {
+            const funcCallable = try self.arena.allocator().create(callable.Callable);
+            const func = try self.arena.allocator().create(callable.LoxFunction);
+
+            const methodName = method.name.toString(self.arena.allocator());
+            const isInitializer = std.mem.eql(u8, methodName, "init");
+            func.* = callable.LoxFunction.init(self.arena.allocator(), method, self.environment, isInitializer);
+
+            funcCallable.* = callable.Callable.init(func);
+
+            const funcObj = try self.arena.allocator().create(object.Object);
+            funcObj.* = .{ .callable = funcCallable };
+
+            try methods.put(methodName, funcObj);
+        }
+
+        const klass = class.LoxClass.init(self.arena.allocator(), className, methods, superclass);
 
         const klassCallable = try self.arena.allocator().create(callable.Callable);
 
@@ -131,7 +160,7 @@ pub const Interpreter = struct {
         const funcCallable = try self.arena.allocator().create(callable.Callable);
         const func = try self.arena.allocator().create(callable.LoxFunction);
 
-        func.* = callable.LoxFunction.init(self.arena.allocator(), f, self.environment);
+        func.* = callable.LoxFunction.init(self.arena.allocator(), f, self.environment, false);
 
         funcCallable.* = callable.Callable.init(func);
 
@@ -317,7 +346,7 @@ pub const Interpreter = struct {
                 return try self.evalBinary(&b);
             },
             .variable => |v| {
-                return self.lookupVariable(v, expr);
+                return self.lookupVariable(v.name, expr);
             },
             .assignment => |a| {
                 return try self.evalAssign(expr, &a);
@@ -333,6 +362,9 @@ pub const Interpreter = struct {
             },
             .set => |s| {
                 return self.evalSet(&s);
+            },
+            .this => |t| {
+                return self.evalThis(expr, t);
             },
             else => {
                 std.log.warn("Unexpected expression: {}\n", .{expr});
@@ -361,6 +393,10 @@ pub const Interpreter = struct {
         const value = try self.evaluate(expr.value);
         try obj.implementation.set(expr.name, value);
         return value;
+    }
+
+    fn evalThis(self: *Self, expr: *ast.Expression, t: token.Token) anyerror!*object.Object {
+        return self.lookupVariable(t, expr);
     }
 
     fn evalGet(self: *Self, expr: *const ast.GetExpr) anyerror!*object.Object {

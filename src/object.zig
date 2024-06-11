@@ -72,10 +72,27 @@ pub const Object = union(enum) {
         };
     }
 
+    pub fn isCallable(self: *Self) bool {
+        return switch (self.*) {
+            .callable => |_| return true,
+            .returnValue => |r| return r.isCallable(),
+            .class => |_| return true,
+            else => return false,
+        };
+    }
+
     pub fn isInstance(self: *Self) bool {
         return switch (self.*) {
             .implementation => |_| return true,
             .returnValue => |r| return r.isInstance(),
+            else => return false,
+        };
+    }
+
+    pub fn isClass(self: *Self) bool {
+        return switch (self.*) {
+            .class => |_| return true,
+            .returnValue => |r| return r.isClass(),
             else => return false,
         };
     }

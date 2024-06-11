@@ -68,18 +68,23 @@ pub const Parser = struct {
 
     pub fn classDeclaration(self: *Self) !*ast.Statement {
         const name = try self.consume(@tagName(token.TokenType.identifier), "Expect class name.");
+
+        var superclass: ?*ast.Expression = null;
+        if (self.match(.{@tagName(token.TokenType.less)})) {
+            _ = try self.consume(@tagName(token.TokenType.identifier), "Expect superclass name.");
+            // const superVar = try self.arena.allocator().create(ast.VariableExpr);
+            // superVar.* = .{
+            //     .name = self.previous(),
+            // };
+            superclass = try self.arena.allocator().create(ast.Expression);
+            superclass.?.* = .{
+                .variable = .{
+                    .name = self.previous(),
+                },
+            };
+        }
+
         _ = try self.consume(@tagName(token.TokenType.left_brace), "Expect '{' before class body.");
-
-        // var superclass: ?*ast.Expression = null;
-        // if (self.match(.{@tagName(token.TokenType.less)})) {
-        //     _ = try self.consume(@tagName(token.TokenType.identifier), "Expect superclass name.");
-        //     superclass = try self.arena.allocator().create(ast.Expression);
-        //     superclass.* = .{
-        //         .variable = self.previous(),
-        //     };
-        // }
-
-        // _ = try self.consume(@tagName(token.TokenType.left_brace), "Expect '{' before class body.");
 
         var methods = std.ArrayList(*ast.FunctionStatement).init(self.arena.allocator());
         while (!self.check(@tagName(token.TokenType.right_brace)) and !self.is_at_end()) {
@@ -92,7 +97,7 @@ pub const Parser = struct {
         const class = try self.arena.allocator().create(ast.ClassStatement);
         class.* = .{
             .name = name,
-            // .superclass = superclass,
+            .superclass = superclass,
             .methods = try methods.toOwnedSlice(),
         };
 
@@ -384,7 +389,7 @@ pub const Parser = struct {
                 const assign = try self.arena.allocator().create(ast.Expression);
                 assign.* = .{
                     .assignment = .{
-                        .name = variable,
+                        .name = variable.name,
                         .value = value,
                     },
                 };
@@ -656,10 +661,34 @@ pub const Parser = struct {
             return expr;
         }
 
+        if (self.match(.{@tagName(token.TokenType.super)})) {
+            const keyword = self.previous();
+            _ = try self.consume(@tagName(token.TokenType.dot), "Expect '.' after 'super'.");
+            const method = try self.consume(@tagName(token.TokenType.identifier), "Expect superclass method name.");
+            const expr = try self.arena.allocator().create(ast.Expression);
+            expr.* = .{
+                .super = .{
+                    .keyword = keyword,
+                    .method = method,
+                },
+            };
+            return expr;
+        }
+
+        if (self.match(.{@tagName(token.TokenType.this)})) {
+            const expr = try self.arena.allocator().create(ast.Expression);
+            expr.* = .{
+                .this = self.previous(),
+            };
+            return expr;
+        }
+
         if (self.match(.{@tagName(token.TokenType.identifier)})) {
             const expr = try self.arena.allocator().create(ast.Expression);
             expr.* = .{
-                .variable = self.previous(),
+                .variable = .{
+                    .name = self.previous(),
+                },
             };
             return expr;
         }

@@ -286,3 +286,77 @@ test "test class instance simple" {
 
     try Lox.run(arena.allocator(), source);
 }
+
+test "test class instance method" {
+    var arena = std.heap.ArenaAllocator.init(test_allocator);
+    defer arena.deinit();
+
+    const source =
+        \\class Bacon {
+        \\  eat() {
+        \\    print "Crunch crunch cruch!";
+        \\  }
+        \\}
+        \\
+        \\Bacon().eat();
+    ;
+
+    try Lox.run(arena.allocator(), source);
+}
+
+test "test class this" {
+    var arena = std.heap.ArenaAllocator.init(test_allocator);
+    defer arena.deinit();
+
+    const source =
+        \\class Cake {
+        \\  taste() {
+        \\   var adjective = "delicious";
+        \\   print "The " + this.flavor + " cake is " + adjective + "!";
+        \\  }
+        \\}
+        \\
+        \\var cake = Cake();
+        \\cake.flavor = "German chocolate";
+        \\cake.taste(); // Prints "The German chocolate cake is delicious!".
+    ;
+
+    try Lox.run(arena.allocator(), source);
+}
+
+test "test class init" {
+    var arena = std.heap.ArenaAllocator.init(test_allocator);
+    defer arena.deinit();
+
+    const source =
+        \\class Foo {
+        \\  init() {
+        \\    print this;
+        \\  }
+        \\}
+        \\
+        \\var foo = Foo();
+        \\print foo.init();
+    ;
+
+    try Lox.run(arena.allocator(), source);
+}
+
+test "test basic inheritance" {
+    var arena = std.heap.ArenaAllocator.init(test_allocator);
+    defer arena.deinit();
+
+    const source =
+        \\class Doughnut {
+        \\  cook() {
+        \\    print "Fry until golden brown.";
+        \\  }
+        \\}
+        \\
+        \\class BostonCream < Doughnut {}
+        \\
+        \\BostonCream().cook();
+    ;
+
+    try Lox.run(arena.allocator(), source);
+}
