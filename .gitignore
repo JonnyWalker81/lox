@@ -4,3 +4,5 @@
 /.envrc
 /jlox/zig-out/
 /jlox/zig-cache/
+/clox/zig-out/
+/clox/zig-cache/
