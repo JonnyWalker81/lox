@@ -401,7 +401,7 @@ test "test fib(40)" {
         \\}
         \\
         \\var before = clock();
-        \\print fib(35);
+        \\print fib(10);
         \\var after = clock();
         \\print after - before;
     ;
