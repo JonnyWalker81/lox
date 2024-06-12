@@ -2,3 +2,5 @@
 /zig-cache/
 /.direnv/
 /.envrc
+/jlox/zig-out/
+/jlox/zig-cache/
