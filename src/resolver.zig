@@ -11,6 +11,12 @@ const FunctionType = enum {
     method,
 };
 
+const ClassType = enum {
+    none,
+    class,
+    subclass,
+};
+
 pub const Resolver = struct {
     const Self = @This();
 
@@ -18,6 +24,7 @@ pub const Resolver = struct {
     interpreter: *interpreter.Interpreter,
     scopes: std.ArrayList(std.StringHashMap(bool)),
     currentFunction: FunctionType = .none,
+    currentClass: ClassType = .none,
 
     pub fn init(allocator: std.mem.Allocator, i: *interpreter.Interpreter) Self {
         return Self{
@@ -102,28 +109,45 @@ pub const Resolver = struct {
             .this => |t| {
                 try self.resolveLocal(expr, t);
             },
+            .super => |s| {
+                try self.resolveSuper(expr, &s);
+            },
             else => {},
         }
     }
 
+    fn resolveSuper(self: *Self, expr: *ast.Expression, s: *const ast.Super) !void {
+        if (self.currentClass == .none) {
+            lox.Lox.err(s.keyword.line, "Cannot use 'super' outside of a class.");
+        } else if (self.currentClass != .subclass) {
+            lox.Lox.err(s.keyword.line, "Cannot use 'super' in a class with no superclass.");
+        }
+
+        try self.resolveLocal(expr, s.keyword);
+    }
+
     fn resolveClassStmt(self: *Self, c: *ast.ClassStatement) !void {
-        // const enclosingClass = self.currentClass;
-        // self.currentClass = .class;
+        const enclosingClass = self.currentClass;
+        self.currentClass = .class;
 
         try self.declare(c.name);
         try self.define(c.name);
 
         if (c.superclass) |s| {
-            try self.beginScope();
-            var scopes = &self.scopes.items[self.scopes.items.len - 1];
-            try scopes.put("super", true);
             const className = c.name.toString(self.allocator);
             const superName = s.variable.name.toString(self.allocator);
             if (std.mem.eql(u8, className, superName)) {
                 lox.Lox.err(s.variable.name.line, "A class cannot inherit from itself.");
             }
+        }
 
+        if (c.superclass) |s| {
+            self.currentClass = .subclass;
             try self.resolveExpression(s);
+
+            try self.beginScope();
+            var scopes = &self.scopes.items[self.scopes.items.len - 1];
+            try scopes.put("super", true);
         }
 
         try self.beginScope();
@@ -140,10 +164,12 @@ pub const Resolver = struct {
         }
 
         try self.endScope();
+
         if (c.superclass) |_| {
             try self.endScope();
         }
-        // self.currentClass = enclosingClass;
+
+        self.currentClass = enclosingClass;
     }
 
     fn resolveBlock(self: *Self, block: []const *ast.Statement) !void {

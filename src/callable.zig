@@ -102,7 +102,8 @@ pub const Clock = struct {
     }
 
     fn now() i64 {
-        return @divExact(std.time.milliTimestamp(), 1000);
+        // return @divTrunc(std.time.milliTimestamp(), 1000);
+        return @divFloor(std.time.milliTimestamp(), 1000);
     }
 };
 

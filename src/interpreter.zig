@@ -114,6 +114,12 @@ pub const Interpreter = struct {
         const nullInit = try self.nullObj();
         try self.environment.define(className, nullInit);
 
+        if (superclass) |super| {
+            const e = env.Environment.initWithEnclosing(self.arena.allocator(), self.environment);
+            try e.define("super", super);
+            self.environment = e;
+        }
+
         var methods = std.StringHashMap(*object.Object).init(self.arena.allocator());
         for (stmt.methods) |method| {
             const funcCallable = try self.arena.allocator().create(callable.Callable);
@@ -139,6 +145,11 @@ pub const Interpreter = struct {
 
         const classObj = try self.arena.allocator().create(object.Object);
         classObj.* = .{ .class = klassCallable };
+
+        if (superclass) |_| {
+            self.environment = self.environment.enclosing.?;
+        }
+
         try self.environment.assign(className, classObj);
 
         return classObj;
@@ -366,6 +377,9 @@ pub const Interpreter = struct {
             .this => |t| {
                 return self.evalThis(expr, t);
             },
+            .super => |s| {
+                return self.evalSuper(expr, &s);
+            },
             else => {
                 std.log.warn("Unexpected expression: {}\n", .{expr});
                 std.log.warn("Unexpected expression: {s}\n", .{@tagName(expr.*)});
@@ -382,6 +396,18 @@ pub const Interpreter = struct {
         } else {
             return self.globals.get(varName);
         }
+    }
+
+    fn evalSuper(self: *Self, expr: *ast.Expression, s: *const ast.Super) anyerror!*object.Object {
+        const distance = self.locals.get(expr) orelse 0;
+        const superclass = try self.environment.getAt(distance, "super");
+        const obj = try self.environment.getAt(distance - 1, "this");
+        const method = superclass.class.inner(class.LoxClass).findMethod(s.method.toString(self.arena.allocator()));
+        if (method) |m| {
+            return m.callable.inner(callable.LoxFunction).bind(obj);
+        }
+
+        return InterpreterErrors.NonInstancePropertyAccess;
     }
 
     fn evalSet(self: *Self, expr: *const ast.SetExpr) anyerror!*object.Object {

@@ -360,3 +360,51 @@ test "test basic inheritance" {
 
     try Lox.run(arena.allocator(), source);
 }
+
+test "test super class" {
+    var arena = std.heap.ArenaAllocator.init(test_allocator);
+    defer arena.deinit();
+
+    const source =
+        \\class A {
+        \\  method() {
+        \\    print "A method";
+        \\  }
+        \\}
+        \\
+        \\class B < A {
+        \\  method() {
+        \\    print "B method";
+        \\  }
+        \\
+        \\  test() {
+        \\    super.method();
+        \\  }
+        \\}
+        \\
+        \\class C < B {}
+        \\
+        \\C().test();
+    ;
+
+    try Lox.run(arena.allocator(), source);
+}
+
+test "test fib(40)" {
+    var arena = std.heap.ArenaAllocator.init(test_allocator);
+    defer arena.deinit();
+
+    const source =
+        \\        fun fib(n) {
+        \\  if (n < 2) return n;
+        \\  return fib(n - 1) + fib(n - 2);
+        \\}
+        \\
+        \\var before = clock();
+        \\print fib(35);
+        \\var after = clock();
+        \\print after - before;
+    ;
+
+    try Lox.run(arena.allocator(), source);
+}
