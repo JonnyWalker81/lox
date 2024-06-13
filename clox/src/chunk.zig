@@ -2,6 +2,7 @@ const std = @import("std");
 const memory = @import("memory.zig");
 const debug = @import("debug.zig");
 const value = @import("value.zig");
+const vm = @import("vm.zig");
 
 pub const OpCode = enum(u8) {
     OpReturn = 0x00,
@@ -73,12 +74,17 @@ test "test chunk" {
     var chunk = Chunk.init(arena.allocator());
     defer chunk.freeChunk();
 
+    var v = vm.VM.init(arena.allocator());
+    defer v.deinit();
+
     const constant = chunk.addConstant(1.2) catch unreachable;
     try chunk.writeChunk(@intFromEnum(OpCode.OpConstant), 123);
     try chunk.writeChunk(@intCast(constant), 123);
     try chunk.writeChunk(@intFromEnum(OpCode.OpReturn), 123);
 
     debug.disassembleChunk(chunk, "test chunk");
+
+    _ = try v.interpret(chunk);
 
     try std.testing.expectEqual(3, chunk.count);
     try std.testing.expectEqual(8, chunk.capacity);

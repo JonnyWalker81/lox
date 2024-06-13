@@ -66,6 +66,6 @@ fn constantInstruction(name: []const u8, c: *chunk.Chunk, offset: usize) usize {
     return offset + 2;
 }
 
-fn printValue(val: value.Value) void {
+pub fn printValue(val: value.Value) void {
     std.debug.print("{d}", .{val});
 }

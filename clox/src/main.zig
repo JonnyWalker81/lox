@@ -1,5 +1,6 @@
 const std = @import("std");
 const chunk = @import("chunk.zig");
+const build_options = @import("build_options");
 
 pub fn main() !void {
     // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)

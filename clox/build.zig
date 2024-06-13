@@ -36,6 +36,11 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const options = b.addOptions();
+    options.addOption(bool, "debug_trace_execution", true);
+
+    exe.root_module.addOptions("build_options", options);
+
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
     // step when running `zig build`).
@@ -79,6 +84,8 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+
+    exe_unit_tests.root_module.addOptions("build_options", options);
 
     const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
 
