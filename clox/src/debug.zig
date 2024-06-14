@@ -37,6 +37,21 @@ pub fn disassembleInstruction(c: *chunk.Chunk, offset: usize) usize {
             .OpConstant => {
                 return constantInstruction("OP_CONSTANT", c, offset);
             },
+            .OpNegate => {
+                return simpleInstruction("OP_NEGATE", offset);
+            },
+            .OpAdd => {
+                return simpleInstruction("OP_ADD", offset);
+            },
+            .OpSubtract => {
+                return simpleInstruction("OP_SUBTRACT", offset);
+            },
+            .OpMultiply => {
+                return simpleInstruction("OP_MULTIPLY", offset);
+            },
+            .OpDivide => {
+                return simpleInstruction("OP_DIVIDE", offset);
+            },
             // else => {
             //     std.debug.print("Unknown opcode {}\n", .{instruction});
             //     return offset + 1;

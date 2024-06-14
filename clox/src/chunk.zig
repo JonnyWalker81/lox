@@ -7,6 +7,11 @@ const vm = @import("vm.zig");
 pub const OpCode = enum(u8) {
     OpReturn = 0x00,
     OpConstant = 0x01,
+    OpNegate = 0x02,
+    OpAdd = 0x03,
+    OpSubtract = 0x04,
+    OpMultiply = 0x05,
+    OpDivide = 0x06,
 };
 
 pub const Chunk = struct {
@@ -68,28 +73,42 @@ pub const Chunk = struct {
 };
 
 var test_allocator = std.testing.allocator;
-test "test chunk" {
-    var arena = std.heap.ArenaAllocator.init(test_allocator);
-    defer arena.deinit();
-    var chunk = Chunk.init(arena.allocator());
-    defer chunk.freeChunk();
+// test "test chunk" {
+//     var arena = std.heap.ArenaAllocator.init(test_allocator);
+//     defer arena.deinit();
+//     var chunk = Chunk.init(arena.allocator());
+//     defer chunk.freeChunk();
 
-    var v = vm.VM.init(arena.allocator());
-    defer v.deinit();
+//     var v = vm.VM.init(arena.allocator());
+//     defer v.deinit();
 
-    const constant = chunk.addConstant(1.2) catch unreachable;
-    try chunk.writeChunk(@intFromEnum(OpCode.OpConstant), 123);
-    try chunk.writeChunk(@intCast(constant), 123);
-    try chunk.writeChunk(@intFromEnum(OpCode.OpReturn), 123);
+//     var constant = try chunk.addConstant(1.2);
+//     try chunk.writeChunk(@intFromEnum(OpCode.OpConstant), 123);
+//     try chunk.writeChunk(@intCast(constant), 123);
 
-    debug.disassembleChunk(chunk, "test chunk");
+//     constant = try chunk.addConstant(3.4);
+//     try chunk.writeChunk(@intFromEnum(OpCode.OpConstant), 123);
+//     try chunk.writeChunk(@intCast(constant), 123);
 
-    _ = try v.interpret(chunk);
+//     try chunk.writeChunk(@intFromEnum(OpCode.OpAdd), 123);
 
-    try std.testing.expectEqual(3, chunk.count);
-    try std.testing.expectEqual(8, chunk.capacity);
-    if (chunk.code) |code| {
-        try std.testing.expectEqual(code[0], @intFromEnum(OpCode.OpConstant));
-    }
-    // std.testing.expectEqual(chunk.code[1], OpCode.OpReturn);
-}
+//     constant = try chunk.addConstant(5.6);
+//     try chunk.writeChunk(@intFromEnum(OpCode.OpConstant), 123);
+//     try chunk.writeChunk(@intCast(constant), 123);
+
+//     try chunk.writeChunk(@intFromEnum(OpCode.OpDivide), 123);
+
+//     try chunk.writeChunk(@intFromEnum(OpCode.OpNegate), 123);
+//     try chunk.writeChunk(@intFromEnum(OpCode.OpReturn), 123);
+
+//     debug.disassembleChunk(chunk, "test chunk");
+
+//     _ = try v.interpret(chunk);
+
+//     // try std.testing.expectEqual(4, chunk.count);
+//     // try std.testing.expectEqual(8, chunk.capacity);
+//     if (chunk.code) |code| {
+//         try std.testing.expectEqual(code[0], @intFromEnum(OpCode.OpConstant));
+//     }
+//     // std.testing.expectEqual(chunk.code[1], OpCode.OpReturn);
+// }

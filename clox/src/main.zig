@@ -1,26 +1,70 @@
 const std = @import("std");
 const chunk = @import("chunk.zig");
 const build_options = @import("build_options");
+const vm = @import("vm.zig");
 
 pub fn main() !void {
-    // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
-    std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
+    const argLen = argCount();
+    var args = std.process.args();
+    _ = args.skip();
 
-    // stdout is for the actual output of your application, for example if you
-    // are implementing gzip, then only the compressed bytes should be sent to
-    // stdout, not any debugging messages.
-    const stdout_file = std.io.getStdOut().writer();
-    var bw = std.io.bufferedWriter(stdout_file);
-    const stdout = bw.writer();
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var arena = std.heap.ArenaAllocator.init(gpa.allocator());
+    defer arena.deinit();
 
-    try stdout.print("Run `zig build test` to run the tests.\n", .{});
+    var v = vm.VM.init(arena.allocator());
+    defer v.deinit();
 
-    try bw.flush(); // don't forget to flush!
+    if (argLen == 1) {
+        try repl(v);
+        return std.process.exit(64);
+    } else if (argLen == 2) {
+        const script = args.next();
+        try runFile(arena.allocator(), script.?, v);
+    } else {
+        std.debug.print("Usage: clox [path]\n", .{});
+    }
 }
 
-test "simple test" {
-    var list = std.ArrayList(i32).init(std.testing.allocator);
-    defer list.deinit(); // try commenting this out and see if zig detects the memory leak!
-    try list.append(42);
-    try std.testing.expectEqual(@as(i32, 42), list.pop());
+pub fn runFile(allocator: std.mem.Allocator, path: []const u8, v: *vm.VM) !void {
+    const file = try std.fs.cwd().openFile(path, .{});
+    defer file.close();
+
+    const stat = try file.stat();
+    const source = try file.readToEndAlloc(allocator, stat.size);
+    defer allocator.free(source);
+
+    std.debug.print("Running {s}\n", .{path});
+    _ = v.interpret(source) catch |err| {
+        std.debug.print("error: {}\n", .{err});
+        std.process.exit(65);
+    };
+}
+
+fn repl(v: *vm.VM) !void {
+    const stdin = std.io.getStdIn().reader();
+    var br = std.io.bufferedReader(stdin);
+    const stdout = std.io.getStdOut().writer();
+    const r = br.reader();
+
+    while (true) {
+        try stdout.print("> ", .{});
+        var line_buf: [1024]u8 = undefined;
+        const line = try r.readUntilDelimiterOrEof(&line_buf, '\n');
+        if (line) |input| {
+            _ = try v.interpret(input);
+        }
+        std.debug.print("\n", .{});
+    }
+}
+
+fn argCount() usize {
+    var args = std.process.args();
+    var count: usize = 0;
+
+    while (args.next()) |_| {
+        count += 1;
+    }
+
+    return count;
 }
