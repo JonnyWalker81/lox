@@ -77,8 +77,12 @@ pub const VM = struct {
     }
 
     pub fn interpret(self: *Self, source: []const u8) !InterpretResult {
-        try self.comp.compile(source);
-        return .ok;
+        const c = try self.comp.compile(source);
+        defer c.deinit();
+
+        self.chnk = c;
+        self.ip = 0;
+        return try self.run();
         // self.chnk = c;
         // self.ip = 0;
         // return try self.run();

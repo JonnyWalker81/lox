@@ -3,6 +3,7 @@ const std = @import("std");
 pub const CompilerError = error{
     UnexpectedToken,
     UnterminatedString,
+    InvalidSyntax,
 };
 
 pub const TokenType = union(enum) {
@@ -104,10 +105,21 @@ pub const TokenType = union(enum) {
 };
 
 pub const Token = struct {
-    type: TokenType,
-    start: usize,
-    length: usize,
-    line: usize,
+    type: TokenType = .eof,
+    start: usize = 0,
+    length: usize = 0,
+    line: usize = 0,
+
+    pub fn init() Token {
+        return .{};
+    }
+
+    pub fn number(self: Token) f64 {
+        switch (self.type) {
+            .number => return self.number,
+            else => return 0,
+        }
+    }
 };
 
 pub const Scanner = struct {
