@@ -229,8 +229,6 @@ pub const Compiler = struct {
         const operatorType = self.parser.previous.type;
         try self.parsePrecedence(.unary);
 
-        try self.expression();
-
         switch (operatorType) {
             .bang => try self.emitByte(@intFromEnum(chunk.OpCode.OpNot)),
             .minus => try self.emitByte(@intFromEnum(chunk.OpCode.OpNegate)),
