@@ -38,6 +38,7 @@ pub fn build(b: *std.Build) void {
 
     const options = b.addOptions();
     options.addOption(bool, "debug_trace_execution", true);
+    options.addOption(bool, "debug_print_code", true);
 
     exe.root_module.addOptions("build_options", options);
 

@@ -116,7 +116,7 @@ pub const Token = struct {
 
     pub fn number(self: Token) f64 {
         switch (self.type) {
-            .number => return self.number,
+            .number => |n| return n,
             else => return 0,
         }
     }

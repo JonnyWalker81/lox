@@ -1,6 +1,9 @@
 const std = @import("std");
 const scanner = @import("scanner.zig");
 const chunk = @import("chunk.zig");
+const build_options = @import("build_options");
+const debug = @import("debug.zig");
+const value = @import("value.zig");
 
 const Precedence = enum {
     none,
@@ -14,6 +17,57 @@ const Precedence = enum {
     unary, // ! -
     call, // . () []
     primary,
+};
+
+const ParseFn = *const fn (*Compiler) anyerror!void;
+
+const ParseRule = struct {
+    prefixFn: ?ParseFn,
+    infixFn: ?ParseFn,
+    precedence: Precedence,
+};
+
+const rules = [_]ParseRule{
+    .{ .prefixFn = Compiler.grouping, .infixFn = null, .precedence = .none }, // .left_paren
+    .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .left_paren
+    .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .left_brace
+    .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .right_brace
+    .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .comma
+    .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .dot
+    .{ .prefixFn = Compiler.unary, .infixFn = Compiler.binary, .precedence = .term }, // .minus
+    .{ .prefixFn = null, .infixFn = Compiler.binary, .precedence = .term }, // .plus
+    .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .semicolon
+    .{ .prefixFn = null, .infixFn = Compiler.binary, .precedence = .factor }, // .slash
+    .{ .prefixFn = null, .infixFn = Compiler.binary, .precedence = .factor }, // .star
+    .{ .prefixFn = Compiler.unary, .infixFn = null, .precedence = .none }, // .bang
+    .{ .prefixFn = null, .infixFn = Compiler.binary, .precedence = .equality }, // .bang_equal
+    .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .equal
+    .{ .prefixFn = null, .infixFn = Compiler.binary, .precedence = .equality }, // .equal_equal
+    .{ .prefixFn = null, .infixFn = Compiler.binary, .precedence = .comparison }, // .greater
+    .{ .prefixFn = null, .infixFn = Compiler.binary, .precedence = .comparison }, // .greater_equal
+    .{ .prefixFn = null, .infixFn = Compiler.binary, .precedence = .comparison }, // .less
+    .{ .prefixFn = null, .infixFn = Compiler.binary, .precedence = .comparison }, // .less_equal
+    .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .identifier
+    .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .string
+    .{ .prefixFn = Compiler.number, .infixFn = null, .precedence = .none }, // .number
+    .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .and
+    .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .class
+    .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .else
+    .{ .prefixFn = Compiler.literal, .infixFn = null, .precedence = .none }, // .false
+    .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .for
+    .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .fun
+    .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .if
+    .{ .prefixFn = Compiler.literal, .infixFn = null, .precedence = .none }, // .nil
+    .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .or
+    .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .print
+    .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .return
+    .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .super
+    .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .this
+    .{ .prefixFn = Compiler.literal, .infixFn = null, .precedence = .none }, // .true
+    .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .var
+    .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .while
+    .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .error
+    .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .eof
 };
 
 const Parser = struct {
@@ -118,25 +172,44 @@ pub const Compiler = struct {
 
     fn endCompiler(self: *Self) !void {
         try self.emitReturn();
+
+        if (build_options.debug_print_code and !self.parser.hadError) {
+            debug.disassembleChunk(self.currentChunk(), "code");
+        }
     }
 
     fn binary(self: *Self) !void {
         const operatorType = self.parser.previous.type;
-        // const rule = getRule(operatorType);
-        // try self.parsePrecedence(@enumFromInt(@intFromEnum(rule.precedence) + 1));
+        const rule = try self.getRule(operatorType);
+        try self.parsePrecedence(@enumFromInt(@intFromEnum(rule.precedence) + 1));
 
         switch (operatorType) {
-            .plus => try self.emitByte(@intFromEnum(.OpAdd)),
-            .minus => try self.emitByte(@intFromEnum(.OpSubtract)),
-            .star => try self.emitByte(@intFromEnum(.OpMultiply)),
-            .slash => try self.emitByte(@intFromEnum(.OpDivide)),
-            _ => return,
+            .bang_equal => try self.emitBytes(@intFromEnum(chunk.OpCode.OpEqual), @intFromEnum(chunk.OpCode.OpNot)),
+            .equal_equal => try self.emitByte(@intFromEnum(chunk.OpCode.OpEqual)),
+            .greater => try self.emitByte(@intFromEnum(chunk.OpCode.OpGreater)),
+            .greater_equal => try self.emitBytes(@intFromEnum(chunk.OpCode.OpLess), @intFromEnum(chunk.OpCode.OpNot)),
+            .less => try self.emitByte(@intFromEnum(chunk.OpCode.OpLess)),
+            .less_equal => try self.emitBytes(@intFromEnum(chunk.OpCode.OpGreater), @intFromEnum(chunk.OpCode.OpNot)),
+            .plus => try self.emitByte(@intFromEnum(chunk.OpCode.OpAdd)),
+            .minus => try self.emitByte(@intFromEnum(chunk.OpCode.OpSubtract)),
+            .star => try self.emitByte(@intFromEnum(chunk.OpCode.OpMultiply)),
+            .slash => try self.emitByte(@intFromEnum(chunk.OpCode.OpDivide)),
+            else => return,
+        }
+    }
+
+    fn literal(self: *Self) !void {
+        switch (self.parser.previous.type) {
+            .false => try self.emitByte(@intFromEnum(chunk.OpCode.OpFalse)),
+            .nil => try self.emitByte(@intFromEnum(chunk.OpCode.OpNil)),
+            .true => try self.emitByte(@intFromEnum(chunk.OpCode.OpTrue)),
+            else => return,
         }
     }
 
     fn grouping(self: *Self) !void {
         try self.expression();
-        _ = try self.consume(.rightParen, "Expect ')' after expression.");
+        _ = try self.consume(.right_paren, "Expect ')' after expression.");
     }
 
     fn number(self: *Self) !void {
@@ -145,9 +218,11 @@ pub const Compiler = struct {
         //     self.errorAtCurrent("Invalid number.");
         // }
 
-        const value = self.parser.previous.number();
+        const val = self.parser.previous.number();
 
-        try self.emitConstant(value);
+        const numVal: value.Value = .{ .number = val };
+
+        try self.emitConstant(numVal);
     }
 
     fn unary(self: *Self) !void {
@@ -157,14 +232,37 @@ pub const Compiler = struct {
         try self.expression();
 
         switch (operatorType) {
-            .minus => try self.emitByte(@intFromEnum(.OpNegate)),
+            .bang => try self.emitByte(@intFromEnum(chunk.OpCode.OpNot)),
+            .minus => try self.emitByte(@intFromEnum(chunk.OpCode.OpNegate)),
             else => return,
         }
     }
 
     fn parsePrecedence(self: *Self, precedence: Precedence) !void {
+        try self.advance();
+        var rule = try self.getRule(self.parser.previous.type);
+        const prefixRule = rule.prefixFn;
+
+        if (prefixRule == null) {
+            std.debug.print("No rule found for {s}\n", .{self.parser.current.type});
+            self.err("Expect expression.");
+            return;
+        }
+
+        try prefixRule.?(self);
+
+        rule = try self.getRule(self.parser.current.type);
+        while (@intFromEnum(precedence) <= @intFromEnum(rule.precedence)) {
+            try self.advance();
+            const infixRule = try self.getRule(self.parser.previous.type);
+            try infixRule.infixFn.?(self);
+            rule = try self.getRule(self.parser.current.type);
+        }
+    }
+
+    fn getRule(self: *Self, typ: scanner.TokenType) !ParseRule {
         _ = self;
-        _ = precedence;
+        return rules[@intFromEnum(typ)];
     }
 
     fn expression(self: *Self) !void {
@@ -175,18 +273,18 @@ pub const Compiler = struct {
         try self.emitByte(@intFromEnum(chunk.OpCode.OpReturn));
     }
 
-    fn makeConstant(self: *Self, value: chunk.Value) !u8 {
-        const constant = try self.currentChunk().addConstant(value);
-        if (constant > u8.max) {
+    fn makeConstant(self: *Self, val: value.Value) !u8 {
+        const constant = try self.currentChunk().addConstant(val);
+        if (constant > std.math.maxInt(u8)) {
             self.err("Too many constants in one chunk.");
             return 0;
         }
 
-        return constant;
+        return @intCast(constant);
     }
 
-    fn emitConstant(self: *Self, constant: u8) !void {
-        try self.emitBytes(@intFromEnum(.OpConstant), constant);
+    fn emitConstant(self: *Self, constant: value.Value) !void {
+        try self.emitBytes(@intFromEnum(chunk.OpCode.OpConstant), try self.makeConstant(constant));
     }
 
     fn currentChunk(self: *Self) *chunk.Chunk {

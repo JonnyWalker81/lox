@@ -1,7 +1,67 @@
 const std = @import("std");
 const memory = @import("memory.zig");
 
-pub const Value = f64;
+pub const Value = union(enum) {
+    bool: bool,
+    nil,
+    number: f64,
+
+    pub fn isNil(self: Value) bool {
+        return self == .nil;
+    }
+
+    pub fn isBool(self: Value) bool {
+        switch (self) {
+            .bool => return true,
+            else => return false,
+        }
+    }
+
+    pub fn isNumber(self: Value) bool {
+        switch (self) {
+            .number => return true,
+            else => return false,
+        }
+    }
+
+    pub fn boolValue(self: Value) bool {
+        switch (self) {
+            .bool => |b| return b,
+            else => return false,
+        }
+    }
+
+    pub fn numberValue(self: Value) f64 {
+        switch (self) {
+            .number => |n| return n,
+            else => return 0.0,
+        }
+    }
+
+    pub fn isFalsey(self: Value) bool {
+        switch (self) {
+            .bool => |b| return !b,
+            .nil => return true,
+            else => return false,
+        }
+    }
+
+    pub fn equalTo(self: Value, other: Value) bool {
+        if (self.isNil()) {
+            return true;
+        }
+
+        if (self.isNumber() and other.isNumber()) {
+            return self.numberValue() == other.numberValue();
+        }
+
+        if (self.isBool() and other.isBool()) {
+            return self.boolValue() == other.boolValue();
+        }
+
+        return false;
+    }
+};
 
 pub const ValueArray = struct {
     const Self = @This();

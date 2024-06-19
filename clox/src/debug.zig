@@ -37,6 +37,27 @@ pub fn disassembleInstruction(c: *chunk.Chunk, offset: usize) usize {
             .OpConstant => {
                 return constantInstruction("OP_CONSTANT", c, offset);
             },
+            .OpNil => {
+                return simpleInstruction("OP_NIL", offset);
+            },
+            .OpTrue => {
+                return simpleInstruction("OP_TRUE", offset);
+            },
+            .OpFalse => {
+                return simpleInstruction("OP_FALSE", offset);
+            },
+            .OpEqual => {
+                return simpleInstruction("OP_EQUAL", offset);
+            },
+            .OpGreater => {
+                return simpleInstruction("OP_GREATER", offset);
+            },
+            .OpLess => {
+                return simpleInstruction("OP_LESS", offset);
+            },
+            .OpNot => {
+                return simpleInstruction("OP_NOT", offset);
+            },
             .OpNegate => {
                 return simpleInstruction("OP_NEGATE", offset);
             },
@@ -82,5 +103,15 @@ fn constantInstruction(name: []const u8, c: *chunk.Chunk, offset: usize) usize {
 }
 
 pub fn printValue(val: value.Value) void {
-    std.debug.print("{d}", .{val});
+    switch (val) {
+        .number => |n| {
+            std.debug.print("{d}", .{n});
+        },
+        .bool => |b| {
+            std.debug.print("{}", .{b});
+        },
+        .nil => {
+            std.debug.print("nil", .{});
+        },
+    }
 }

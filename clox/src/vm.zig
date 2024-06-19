@@ -5,6 +5,11 @@ const build_options = @import("build_options");
 const value = @import("value.zig");
 const compiler = @import("compiler.zig");
 
+pub const InterpreterError = error{
+    compile_error,
+    runtime_error,
+};
+
 pub const InterpretResult = enum {
     ok,
     compile_error,
@@ -16,6 +21,8 @@ const BinaryOp = enum {
     subtract,
     multiply,
     divide,
+    greater,
+    less,
 };
 
 const StackSize = 256;
@@ -32,7 +39,7 @@ pub const VM = struct {
 
     pub fn init(allocator: std.mem.Allocator) *Self {
         var stack: [StackSize]value.Value = undefined;
-        @memset(&stack, 0);
+        @memset(&stack, undefined);
 
         const vm = allocator.create(Self) catch unreachable;
         vm.* = .{
@@ -54,6 +61,14 @@ pub const VM = struct {
         self.stackTop = 0;
     }
 
+    fn runtimeError(self: *Self, comptime fmt: []const u8, args: anytype) void {
+        std.debug.print(fmt, args);
+        const instruction = self.ip - 1;
+        const line = self.chnk.?.lines.?[instruction];
+        std.debug.print("[line {}] in script\n", .{line});
+        self.resetStack();
+    }
+
     fn push(self: *Self, v: value.Value) void {
         self.stack[self.stackTop] = v;
         self.stackTop += 1;
@@ -62,6 +77,10 @@ pub const VM = struct {
     fn pop(self: *Self) value.Value {
         self.stackTop -= 1;
         return self.stack[self.stackTop];
+    }
+
+    fn peek(self: *Self, distance: usize) *value.Value {
+        return &self.stack[self.stackTop - 1 - distance];
     }
 
     fn readByte(self: *Self) u8 {
@@ -109,8 +128,25 @@ pub const VM = struct {
                 .OpConstant => {
                     try self.run_constant();
                 },
-                .OpNegate => {
-                    try self.run_negate();
+                .OpNil => {
+                    self.push(.nil);
+                },
+                .OpTrue => {
+                    self.push(.{ .bool = true });
+                },
+                .OpFalse => {
+                    self.push(.{ .bool = false });
+                },
+                .OpEqual => {
+                    const b = self.pop();
+                    const a = self.pop();
+                    self.push(.{ .bool = a.equalTo(b) });
+                },
+                .OpGreater => {
+                    try self.run_binary_op(.greater);
+                },
+                .OpLess => {
+                    try self.run_binary_op(.less);
                 },
                 .OpAdd => {
                     try self.run_binary_op(.add);
@@ -124,32 +160,68 @@ pub const VM = struct {
                 .OpDivide => {
                     try self.run_binary_op(.divide);
                 },
+                .OpNot => {
+                    try self.run_not();
+                },
+                .OpNegate => {
+                    try self.run_negate();
+                },
             }
         }
     }
 
     fn run_binary_op(self: *Self, op: BinaryOp) !void {
+        if (!self.peek(0).isNumber() and self.peek(1).isNumber()) {
+            self.runtimeError("Operands must be numbers", .{});
+            return InterpreterError.runtime_error;
+        }
+
         const b = self.pop();
         const a = self.pop();
         switch (op) {
+            .greater => {
+                const result = .{ .bool = a.numberValue() > b.numberValue() };
+                self.push(result);
+            },
+            .less => {
+                const result = .{ .bool = a.numberValue() < b.numberValue() };
+                self.push(result);
+            },
             .add => {
-                self.push(a + b);
+                const result = .{ .number = a.numberValue() + b.numberValue() };
+                self.push(result);
             },
             .subtract => {
-                self.push(a - b);
+                const result = .{ .number = a.numberValue() - b.numberValue() };
+                self.push(result);
             },
             .multiply => {
-                self.push(a * b);
+                const result = .{ .number = a.numberValue() * b.numberValue() };
+                self.push(result);
             },
             .divide => {
-                self.push(a / b);
+                const result = .{ .number = a.numberValue() / b.numberValue() };
+                self.push(result);
             },
         }
     }
 
+    fn run_not(self: *Self) !void {
+        const val = self.pop();
+        self.push(.{ .bool = !val.isFalsey() });
+    }
+
     fn run_negate(self: *Self) !void {
-        const a = self.pop();
-        self.push(-a);
+        switch (self.peek(0).*) {
+            .number => {
+                const a = self.pop();
+                self.push(.{ .number = -a.number });
+            },
+            else => {
+                self.runtimeError("Operand must be a number", .{});
+                return InterpreterError.runtime_error;
+            },
+        }
     }
 
     fn run_return(self: *Self) !InterpretResult {
