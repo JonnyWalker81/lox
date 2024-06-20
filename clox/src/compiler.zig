@@ -48,7 +48,7 @@ const rules = [_]ParseRule{
     .{ .prefixFn = null, .infixFn = Compiler.binary, .precedence = .comparison }, // .less
     .{ .prefixFn = null, .infixFn = Compiler.binary, .precedence = .comparison }, // .less_equal
     .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .identifier
-    .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .string
+    .{ .prefixFn = Compiler.string, .infixFn = null, .precedence = .none }, // .string
     .{ .prefixFn = Compiler.number, .infixFn = null, .precedence = .none }, // .number
     .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .and
     .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .class
@@ -223,6 +223,13 @@ pub const Compiler = struct {
         const numVal: value.Value = .{ .number = val };
 
         try self.emitConstant(numVal);
+    }
+
+    fn string(self: *Self) !void {
+        const prevStart = self.parser.previous.start + 1;
+        const prevLength = self.parser.previous.length - 2;
+        const strVal: value.Value = .{ .string = self.scnr.source[prevStart .. prevStart + prevLength] };
+        try self.emitConstant(strVal);
     }
 
     fn unary(self: *Self) !void {

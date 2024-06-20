@@ -5,6 +5,7 @@ pub const Value = union(enum) {
     bool: bool,
     nil,
     number: f64,
+    string: []const u8,
 
     pub fn isNil(self: Value) bool {
         return self == .nil;
@@ -24,6 +25,13 @@ pub const Value = union(enum) {
         }
     }
 
+    pub fn isString(self: Value) bool {
+        switch (self) {
+            .string => return true,
+            else => return false,
+        }
+    }
+
     pub fn boolValue(self: Value) bool {
         switch (self) {
             .bool => |b| return b,
@@ -35,6 +43,13 @@ pub const Value = union(enum) {
         switch (self) {
             .number => |n| return n,
             else => return 0.0,
+        }
+    }
+
+    pub fn stringValue(self: Value) []const u8 {
+        switch (self) {
+            .string => |s| return s,
+            else => return "",
         }
     }
 
@@ -57,6 +72,10 @@ pub const Value = union(enum) {
 
         if (self.isBool() and other.isBool()) {
             return self.boolValue() == other.boolValue();
+        }
+
+        if (self.isString() and other.isString()) {
+            return std.mem.eql(u8, self.stringValue(), other.stringValue());
         }
 
         return false;

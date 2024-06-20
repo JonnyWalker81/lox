@@ -113,5 +113,8 @@ pub fn printValue(val: value.Value) void {
         .nil => {
             std.debug.print("nil", .{});
         },
+        .string => |s| {
+            std.debug.print("{s}", .{s});
+        },
     }
 }

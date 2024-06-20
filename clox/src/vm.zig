@@ -36,6 +36,7 @@ pub const VM = struct {
     stack: [StackSize]value.Value,
     stackTop: usize = 0,
     comp: compiler.Compiler,
+    strings: std.StringHashMap(void),
 
     pub fn init(allocator: std.mem.Allocator) *Self {
         var stack: [StackSize]value.Value = undefined;
@@ -46,6 +47,7 @@ pub const VM = struct {
             .arena = std.heap.ArenaAllocator.init(allocator),
             .stack = stack,
             .comp = compiler.Compiler.init(allocator),
+            .strings = std.StringHashMap(void).init(allocator),
         };
         return vm;
     }
@@ -188,8 +190,20 @@ pub const VM = struct {
                 self.push(result);
             },
             .add => {
-                const result = .{ .number = a.numberValue() + b.numberValue() };
-                self.push(result);
+                if (a.isNumber() and b.isNumber()) {
+                    const result = .{ .number = a.numberValue() + b.numberValue() };
+                    self.push(result);
+                    return;
+                } else if (a.isString() and b.isString()) {
+                    const s = try std.fmt.allocPrint(self.arena.allocator(), "{s}{s}", .{ a.stringValue(), b.stringValue() });
+                    try self.strings.put(s, void{});
+                    const result = .{ .string = s };
+                    self.push(result);
+                    return;
+                }
+
+                self.runtimeError("Operands must be two numbers or two strings", .{});
+                return InterpreterError.runtime_error;
             },
             .subtract => {
                 const result = .{ .number = a.numberValue() - b.numberValue() };
