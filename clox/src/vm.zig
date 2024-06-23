@@ -36,7 +36,8 @@ pub const VM = struct {
     stack: [StackSize]value.Value,
     stackTop: usize = 0,
     comp: compiler.Compiler,
-    strings: std.StringHashMap(void),
+    globals: std.StringHashMap(*value.Value),
+    // strings: std.StringHashMap(void),
 
     pub fn init(allocator: std.mem.Allocator) *Self {
         var stack: [StackSize]value.Value = undefined;
@@ -47,7 +48,8 @@ pub const VM = struct {
             .arena = std.heap.ArenaAllocator.init(allocator),
             .stack = stack,
             .comp = compiler.Compiler.init(allocator),
-            .strings = std.StringHashMap(void).init(allocator),
+            .globals = std.StringHashMap(*value.Value).init(allocator),
+            // .strings = std.StringHashMap(void).init(allocator),
         };
         return vm;
     }
@@ -57,6 +59,8 @@ pub const VM = struct {
         if (self.chnk) |c| {
             c.deinit();
         }
+
+        self.globals.deinit();
     }
 
     fn resetStack(self: *Self) void {
@@ -72,6 +76,7 @@ pub const VM = struct {
     }
 
     fn push(self: *Self, v: value.Value) void {
+        std.debug.print("pushing value: {s}\n", .{v});
         self.stack[self.stackTop] = v;
         self.stackTop += 1;
     }
@@ -126,7 +131,10 @@ pub const VM = struct {
             }
             const instruction: chunk.OpCode = @enumFromInt(self.readByte());
             switch (instruction) {
-                .OpReturn => return try self.run_return(),
+                .OpPrint => {
+                    try self.run_print();
+                },
+                .OpReturn => return InterpretResult.ok,
                 .OpConstant => {
                     try self.run_constant();
                 },
@@ -138,6 +146,27 @@ pub const VM = struct {
                 },
                 .OpFalse => {
                     self.push(.{ .bool = false });
+                },
+                .OpPop => {
+                    _ = self.pop();
+                },
+                .OpGetGlobal => {
+                    const name = self.read_constant();
+                    if (self.globals.contains(name.stringValue())) {
+                        const val = self.globals.get(name.stringValue());
+                        self.push(val.?.*);
+                    } else {
+                        self.runtimeError("Undefined variable '{s}'", .{name.stringValue()});
+                        return InterpreterError.runtime_error;
+                    }
+                },
+                .OpDefineGlobal => {
+                    const name = self.read_constant();
+                    try self.globals.put(name.stringValue(), self.peek(0));
+                    _ = self.pop();
+                    // try self.strings.put(name.stringValue(), void{});
+                    // debug.printValue(name);
+                    // std.debug.print("\n", .{});
                 },
                 .OpEqual => {
                     const b = self.pop();
@@ -180,6 +209,8 @@ pub const VM = struct {
 
         const b = self.pop();
         const a = self.pop();
+        std.debug.print("a: {s}\n", .{a});
+        std.debug.print("b: {s}\n", .{b});
         switch (op) {
             .greater => {
                 const result = .{ .bool = a.numberValue() > b.numberValue() };
@@ -196,7 +227,7 @@ pub const VM = struct {
                     return;
                 } else if (a.isString() and b.isString()) {
                     const s = try std.fmt.allocPrint(self.arena.allocator(), "{s}{s}", .{ a.stringValue(), b.stringValue() });
-                    try self.strings.put(s, void{});
+                    // try self.strings.put(s, void{});
                     const result = .{ .string = s };
                     self.push(result);
                     return;
@@ -220,6 +251,12 @@ pub const VM = struct {
         }
     }
 
+    fn run_print(self: *Self) !void {
+        const val = self.pop();
+        debug.printValue(val);
+        std.debug.print("\n", .{});
+    }
+
     fn run_not(self: *Self) !void {
         const val = self.pop();
         self.push(.{ .bool = !val.isFalsey() });
@@ -238,21 +275,38 @@ pub const VM = struct {
         }
     }
 
-    fn run_return(self: *Self) !InterpretResult {
-        const val = self.pop();
-        debug.printValue(val);
-        std.debug.print("\n", .{});
-        return InterpretResult.ok;
-    }
+    // fn run_return(self: *Self) !InterpretResult {
+    //     const val = self.pop();
+    //     debug.printValue(val);
+    //     std.debug.print("\n", .{});
+    //     return InterpretResult.ok;
+    // }
 
     fn run_constant(self: *Self) !void {
         if (self.chnk) |c| {
             if (c.constants.values) |constants| {
-                const constant = constants[self.readByte()];
+                std.debug.print("  == reading constants: {any}\n", .{constants});
+                const b = self.readByte();
+                std.debug.print("  == reading constant: {d}\n", .{b});
+                const constant = constants[b];
+
                 self.push(constant);
                 // debug.printValue(constant);
                 // std.debug.print("\n", .{});
             }
         }
+    }
+
+    fn read_constant(self: *Self) value.Value {
+        if (self.chnk) |c| {
+            if (c.constants.values) |constants| {
+                std.debug.print("reading constants: {any}\n", .{constants});
+                const b = self.readByte();
+                std.debug.print("reading constant: {d}\n", .{b});
+                return constants[b];
+            }
+        }
+
+        return .nil;
     }
 };

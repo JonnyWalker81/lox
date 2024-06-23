@@ -4,6 +4,7 @@ const chunk = @import("chunk.zig");
 const build_options = @import("build_options");
 const debug = @import("debug.zig");
 const value = @import("value.zig");
+const vm = @import("vm.zig");
 
 const Precedence = enum {
     none,
@@ -47,7 +48,7 @@ const rules = [_]ParseRule{
     .{ .prefixFn = null, .infixFn = Compiler.binary, .precedence = .comparison }, // .greater_equal
     .{ .prefixFn = null, .infixFn = Compiler.binary, .precedence = .comparison }, // .less
     .{ .prefixFn = null, .infixFn = Compiler.binary, .precedence = .comparison }, // .less_equal
-    .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .identifier
+    .{ .prefixFn = Compiler.variable, .infixFn = null, .precedence = .none }, // .identifier
     .{ .prefixFn = Compiler.string, .infixFn = null, .precedence = .none }, // .string
     .{ .prefixFn = Compiler.number, .infixFn = null, .precedence = .none }, // .number
     .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .and
@@ -95,6 +96,7 @@ pub const Compiler = struct {
     parser: Parser,
     compilingChunk: *chunk.Chunk = undefined,
     scnr: scanner.Scanner = undefined,
+    // v: *vm.VM = undefined,
 
     pub fn init(allocator: std.mem.Allocator) Compiler {
         const parser = Parser.init();
@@ -110,12 +112,16 @@ pub const Compiler = struct {
 
     pub fn compile(self: *Compiler, source: []const u8) !*chunk.Chunk {
         self.scnr = scanner.Scanner.init(self.arena.allocator(), source);
+        // self.v = v;
         const c = chunk.Chunk.init(self.arena.allocator());
         self.compilingChunk = c;
         defer self.endCompiler() catch unreachable;
         _ = try self.advance();
-        try self.expression();
-        _ = try self.consume(.eof, "Expect end of expression.");
+        while (!try self.match(scanner.TokenType.eof)) {
+            try self.declaration();
+        }
+        // try self.expression();
+        // _ = try self.consume(.eof, "Expect end of expression.");
         // var line: i32 = -1;
         // while (true) {
         //     const token = try s.scanToken();
@@ -152,13 +158,26 @@ pub const Compiler = struct {
         }
     }
 
-    fn consume(self: *Self, typ: scanner.TokenType, message: []const u8) !void {
-        if (@intFromEnum(self.parser.current.type) == @intFromEnum(typ)) {
+    fn consume(self: *Self, typ: usize, message: []const u8) !void {
+        if (@intFromEnum(self.parser.current.type) == typ) {
             _ = try self.advance();
             return;
         }
 
         self.errorAtCurrent(message);
+    }
+
+    fn check(self: *Self, typ: scanner.TokenType) bool {
+        return @intFromEnum(self.parser.current.type) == @intFromEnum(typ);
+    }
+
+    fn match(self: *Self, typ: scanner.TokenType) !bool {
+        if (!self.check(typ)) {
+            return false;
+        }
+
+        _ = try self.advance();
+        return true;
     }
 
     fn emitByte(self: *Self, byte: u8) !void {
@@ -209,7 +228,7 @@ pub const Compiler = struct {
 
     fn grouping(self: *Self) !void {
         try self.expression();
-        _ = try self.consume(.right_paren, "Expect ')' after expression.");
+        _ = try self.consume(@intFromEnum(scanner.TokenType.right_paren), "Expect ')' after expression.");
     }
 
     fn number(self: *Self) !void {
@@ -229,7 +248,23 @@ pub const Compiler = struct {
         const prevStart = self.parser.previous.start + 1;
         const prevLength = self.parser.previous.length - 2;
         const strVal: value.Value = .{ .string = self.scnr.source[prevStart .. prevStart + prevLength] };
+        std.debug.print("String: {s}\n", .{strVal.string});
+        // const s = try std.fmt.allocPrint(self.arena.allocator(), "{s}", .{strVal.string});
+        // try self.v.strings.put(s, void{});
         try self.emitConstant(strVal);
+    }
+
+    fn namedVariable(self: *Self, name: scanner.Token) !void {
+        const constant = try self.identifierConstant(name);
+        try self.emitBytes(@intFromEnum(chunk.OpCode.OpGetGlobal), constant);
+        // if (self.match(.equal)) {
+        //     try self.expression();
+        // } else {
+        // }
+    }
+
+    fn variable(self: *Self) !void {
+        try self.namedVariable(self.parser.previous);
     }
 
     fn unary(self: *Self) !void {
@@ -265,6 +300,21 @@ pub const Compiler = struct {
         }
     }
 
+    fn identifierConstant(self: *Self, name: scanner.Token) !u8 {
+        const strVal: value.Value = .{ .string = self.scnr.source[name.start .. name.start + name.length] };
+        const constant = try self.makeConstant(strVal);
+        return constant;
+    }
+
+    fn parseVariable(self: *Self, errorMessage: []const u8) !u8 {
+        _ = try self.consume(@intFromEnum(scanner.TokenType.identifier), errorMessage);
+        return try self.identifierConstant(self.parser.previous);
+    }
+
+    fn defineVariable(self: *Self, global: u8) !void {
+        try self.emitBytes(@intFromEnum(chunk.OpCode.OpDefineGlobal), global);
+    }
+
     fn getRule(self: *Self, typ: scanner.TokenType) !ParseRule {
         _ = self;
         return rules[@intFromEnum(typ)];
@@ -274,11 +324,75 @@ pub const Compiler = struct {
         try self.parsePrecedence(.assignment);
     }
 
+    fn varDeclaration(self: *Self) !void {
+        const global = try self.parseVariable("Expect variable name.");
+
+        if (try self.match(.equal)) {
+            try self.expression();
+        } else {
+            try self.emitByte(@intFromEnum(chunk.OpCode.OpNil));
+        }
+
+        _ = try self.consume(@intFromEnum(scanner.TokenType.semicolon), "Expect ';' after variable declaration.");
+
+        try self.defineVariable(global);
+    }
+
+    fn expressionStatement(self: *Self) !void {
+        try self.expression();
+        _ = try self.consume(@intFromEnum(scanner.TokenType.semicolon), "Expect ';' after expression.");
+        try self.emitByte(@intFromEnum(chunk.OpCode.OpPop));
+    }
+
+    fn printStatement(self: *Self) !void {
+        try self.expression();
+        _ = try self.consume(@intFromEnum(scanner.TokenType.semicolon), "Expect ';' after value.");
+        try self.emitByte(@intFromEnum(chunk.OpCode.OpPrint));
+    }
+
+    fn synchronize(self: *Self) !void {
+        self.parser.panicMode = false;
+
+        while (self.parser.current.type != .eof) {
+            if (self.parser.previous.type == .semicolon) {
+                return;
+            }
+
+            switch (self.parser.current.type) {
+                .class, .fun, .@"var", .@"for", .@"if", .@"while", .print, .@"return" => return,
+                else => {},
+            }
+
+            _ = try self.advance();
+        }
+    }
+
+    fn declaration(self: *Self) !void {
+        if (try self.match(.@"var")) {
+            try self.varDeclaration();
+        } else {
+            try self.statement();
+        }
+
+        if (self.parser.panicMode) {
+            try self.synchronize();
+        }
+    }
+
+    fn statement(self: *Self) !void {
+        if (try self.match(.print)) {
+            try self.printStatement();
+        } else {
+            try self.expressionStatement();
+        }
+    }
+
     fn emitReturn(self: *Self) !void {
         try self.emitByte(@intFromEnum(chunk.OpCode.OpReturn));
     }
 
     fn makeConstant(self: *Self, val: value.Value) !u8 {
+        std.debug.print("makeConstant: {s}\n", .{val});
         const constant = try self.currentChunk().addConstant(val);
         if (constant > std.math.maxInt(u8)) {
             self.err("Too many constants in one chunk.");
@@ -289,6 +403,7 @@ pub const Compiler = struct {
     }
 
     fn emitConstant(self: *Self, constant: value.Value) !void {
+        std.debug.print("emitConstant: {s}\n", .{constant});
         try self.emitBytes(@intFromEnum(chunk.OpCode.OpConstant), try self.makeConstant(constant));
     }
 

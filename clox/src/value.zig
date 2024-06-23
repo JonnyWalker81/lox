@@ -2,6 +2,8 @@ const std = @import("std");
 const memory = @import("memory.zig");
 
 pub const Value = union(enum) {
+    const Self = @This();
+
     bool: bool,
     nil,
     number: f64,
@@ -79,6 +81,35 @@ pub const Value = union(enum) {
         }
 
         return false;
+    }
+
+    pub fn format(
+        self: Self,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = fmt;
+        _ = options;
+
+        switch (self) {
+            .bool => |b| {
+                if (b) {
+                    try writer.print("true", .{});
+                } else {
+                    try writer.print("false", .{});
+                }
+            },
+            .nil => {
+                try writer.print("nil", .{});
+            },
+            .number => |n| {
+                try writer.print("{d}", .{n});
+            },
+            .string => |s| {
+                try writer.print("{s}", .{s});
+            },
+        }
     }
 };
 

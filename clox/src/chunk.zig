@@ -5,11 +5,16 @@ const value = @import("value.zig");
 const vm = @import("vm.zig");
 
 pub const OpCode = enum(u8) {
+    OpNegate,
+    OpPrint,
     OpReturn,
     OpConstant,
     OpNil,
     OpTrue,
     OpFalse,
+    OpPop,
+    OpGetGlobal,
+    OpDefineGlobal,
     OpEqual,
     OpGreater,
     OpLess,
@@ -18,7 +23,6 @@ pub const OpCode = enum(u8) {
     OpMultiply,
     OpDivide,
     OpNot,
-    OpNegate,
 };
 
 pub const Chunk = struct {

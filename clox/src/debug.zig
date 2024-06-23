@@ -31,6 +31,9 @@ pub fn disassembleInstruction(c: *chunk.Chunk, offset: usize) usize {
     if (c.code) |code| {
         const instruction: chunk.OpCode = @enumFromInt(code[offset]);
         switch (instruction) {
+            .OpPrint => {
+                return simpleInstruction("OP_PRINT", offset);
+            },
             .OpReturn => {
                 return simpleInstruction("OP_RETURN", offset);
             },
@@ -45,6 +48,15 @@ pub fn disassembleInstruction(c: *chunk.Chunk, offset: usize) usize {
             },
             .OpFalse => {
                 return simpleInstruction("OP_FALSE", offset);
+            },
+            .OpPop => {
+                return simpleInstruction("OP_POP", offset);
+            },
+            .OpGetGlobal => {
+                return constantInstruction("OP_GET_LOCAL", c, offset);
+            },
+            .OpDefineGlobal => {
+                return constantInstruction("OP_DEFINE_GLOBAL", c, offset);
             },
             .OpEqual => {
                 return simpleInstruction("OP_EQUAL", offset);
