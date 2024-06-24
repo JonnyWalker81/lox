@@ -15,6 +15,7 @@ pub const OpCode = enum(u8) {
     OpPop,
     OpGetGlobal,
     OpDefineGlobal,
+    OpSetGlobal,
     OpEqual,
     OpGreater,
     OpLess,

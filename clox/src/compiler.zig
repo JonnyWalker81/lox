@@ -20,7 +20,7 @@ const Precedence = enum {
     primary,
 };
 
-const ParseFn = *const fn (*Compiler) anyerror!void;
+const ParseFn = *const fn (*Compiler, bool) anyerror!void;
 
 const ParseRule = struct {
     prefixFn: ?ParseFn,
@@ -197,7 +197,7 @@ pub const Compiler = struct {
         }
     }
 
-    fn binary(self: *Self) !void {
+    fn binary(self: *Self, _: bool) !void {
         const operatorType = self.parser.previous.type;
         const rule = try self.getRule(operatorType);
         try self.parsePrecedence(@enumFromInt(@intFromEnum(rule.precedence) + 1));
@@ -217,7 +217,7 @@ pub const Compiler = struct {
         }
     }
 
-    fn literal(self: *Self) !void {
+    fn literal(self: *Self, _: bool) !void {
         switch (self.parser.previous.type) {
             .false => try self.emitByte(@intFromEnum(chunk.OpCode.OpFalse)),
             .nil => try self.emitByte(@intFromEnum(chunk.OpCode.OpNil)),
@@ -226,12 +226,12 @@ pub const Compiler = struct {
         }
     }
 
-    fn grouping(self: *Self) !void {
+    fn grouping(self: *Self, _: bool) !void {
         try self.expression();
         _ = try self.consume(@intFromEnum(scanner.TokenType.right_paren), "Expect ')' after expression.");
     }
 
-    fn number(self: *Self) !void {
+    fn number(self: *Self, _: bool) !void {
         // const value = std.fmt.parseFloat(self.parser.previous.start, self.parser.previous.length);
         // if (value == null) {
         //     self.errorAtCurrent("Invalid number.");
@@ -244,7 +244,7 @@ pub const Compiler = struct {
         try self.emitConstant(numVal);
     }
 
-    fn string(self: *Self) !void {
+    fn string(self: *Self, _: bool) !void {
         const prevStart = self.parser.previous.start + 1;
         const prevLength = self.parser.previous.length - 2;
         const strVal: value.Value = .{ .string = self.scnr.source[prevStart .. prevStart + prevLength] };
@@ -253,20 +253,21 @@ pub const Compiler = struct {
         try self.emitConstant(strVal);
     }
 
-    fn namedVariable(self: *Self, name: scanner.Token) !void {
+    fn namedVariable(self: *Self, name: scanner.Token, canAssign: bool) !void {
         const constant = try self.identifierConstant(name);
-        try self.emitBytes(@intFromEnum(chunk.OpCode.OpGetGlobal), constant);
-        // if (self.match(.equal)) {
-        //     try self.expression();
-        // } else {
-        // }
+        if (canAssign and try self.match(.equal)) {
+            try self.expression();
+            try self.emitBytes(@intFromEnum(chunk.OpCode.OpSetGlobal), constant);
+        } else {
+            try self.emitBytes(@intFromEnum(chunk.OpCode.OpGetGlobal), constant);
+        }
     }
 
-    fn variable(self: *Self) !void {
-        try self.namedVariable(self.parser.previous);
+    fn variable(self: *Self, canAssign: bool) !void {
+        try self.namedVariable(self.parser.previous, canAssign);
     }
 
-    fn unary(self: *Self) !void {
+    fn unary(self: *Self, _: bool) !void {
         const operatorType = self.parser.previous.type;
         try self.parsePrecedence(.unary);
 
@@ -288,14 +289,20 @@ pub const Compiler = struct {
             return;
         }
 
-        try prefixRule.?(self);
+        const canAssign = @intFromEnum(precedence) <= @intFromEnum(Precedence.assignment);
+        try prefixRule.?(self, canAssign);
 
         rule = try self.getRule(self.parser.current.type);
+
         while (@intFromEnum(precedence) <= @intFromEnum(rule.precedence)) {
             try self.advance();
             const infixRule = try self.getRule(self.parser.previous.type);
-            try infixRule.infixFn.?(self);
+            try infixRule.infixFn.?(self, canAssign);
             rule = try self.getRule(self.parser.current.type);
+        }
+
+        if (canAssign and try self.match(.equal)) {
+            self.err("Invalid assignment target.");
         }
     }
 

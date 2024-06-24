@@ -168,6 +168,16 @@ pub const VM = struct {
                     // debug.printValue(name);
                     // std.debug.print("\n", .{});
                 },
+                .OpSetGlobal => {
+                    const name = self.read_constant();
+                    if (self.globals.contains(name.stringValue())) {
+                        const val = self.peek(0);
+                        try self.globals.put(name.stringValue(), val);
+                    } else {
+                        self.runtimeError("Undefined variable '{s}'", .{name.stringValue()});
+                        return InterpreterError.runtime_error;
+                    }
+                },
                 .OpEqual => {
                     const b = self.pop();
                     const a = self.pop();
