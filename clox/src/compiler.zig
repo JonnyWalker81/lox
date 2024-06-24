@@ -89,6 +89,13 @@ const Parser = struct {
     }
 };
 
+pub const Local = struct {
+    name: scanner.Token,
+    depth: usize,
+};
+
+const LocalsCount = std.math.maxInt(u8) + 1;
+
 pub const Compiler = struct {
     const Self = @This();
 
@@ -96,6 +103,9 @@ pub const Compiler = struct {
     parser: Parser,
     compilingChunk: *chunk.Chunk = undefined,
     scnr: scanner.Scanner = undefined,
+    locals: [LocalsCount]Local = undefined,
+    localCount: usize = 0,
+    scopeDepth: usize = 0,
     // v: *vm.VM = undefined,
 
     pub fn init(allocator: std.mem.Allocator) Compiler {
@@ -195,6 +205,14 @@ pub const Compiler = struct {
         if (build_options.debug_print_code and !self.parser.hadError) {
             debug.disassembleChunk(self.currentChunk(), "code");
         }
+    }
+
+    fn beginScope(self: *Self) !void {
+        self.scopeDepth += 1;
+    }
+
+    fn endScope(self: *Self) !void {
+        self.scopeDepth -= 1;
     }
 
     fn binary(self: *Self, _: bool) !void {
@@ -314,6 +332,12 @@ pub const Compiler = struct {
 
     fn parseVariable(self: *Self, errorMessage: []const u8) !u8 {
         _ = try self.consume(@intFromEnum(scanner.TokenType.identifier), errorMessage);
+
+        self.declareVariable();
+        if (self.scopeDepth > 0) {
+            return 0;
+        }
+
         return try self.identifierConstant(self.parser.previous);
     }
 
@@ -328,6 +352,14 @@ pub const Compiler = struct {
 
     fn expression(self: *Self) !void {
         try self.parsePrecedence(.assignment);
+    }
+
+    fn block(self: *Self) !void {
+        while (!try self.check(.right_brace) and !try self.check(.eof)) {
+            try self.declaration();
+        }
+
+        _ = try self.consume(@intFromEnum(scanner.TokenType.right_brace), "Expect '}' after block.");
     }
 
     fn varDeclaration(self: *Self) !void {
@@ -388,6 +420,10 @@ pub const Compiler = struct {
     fn statement(self: *Self) !void {
         if (try self.match(.print)) {
             try self.printStatement();
+        } else if (try self.match(.left_brace)) {
+            try self.beginScope();
+            try self.block();
+            try self.endScope();
         } else {
             try self.expressionStatement();
         }
