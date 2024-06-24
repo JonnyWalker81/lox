@@ -53,7 +53,7 @@ pub fn disassembleInstruction(c: *chunk.Chunk, offset: usize) usize {
                 return simpleInstruction("OP_POP", offset);
             },
             .OpGetGlobal => {
-                return constantInstruction("OP_GET_LOCAL", c, offset);
+                return constantInstruction("OP_GET_GLOBAL", c, offset);
             },
             .OpDefineGlobal => {
                 return constantInstruction("OP_DEFINE_GLOBAL", c, offset);
@@ -106,9 +106,9 @@ fn constantInstruction(name: []const u8, c: *chunk.Chunk, offset: usize) usize {
     if (c.code) |code| {
         const constant: u8 = code[offset + 1];
         std.debug.print("{s} {d:4} '", .{ name, constant });
-        if (c.constants.values) |vals| {
-            printValue(vals[constant]);
-        }
+        // if (c.constants.values) |vals| {
+        printValue(c.constants.items[constant]);
+        // }
         std.debug.print("'\n", .{});
     }
     return offset + 2;

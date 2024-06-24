@@ -32,13 +32,15 @@ pub const Chunk = struct {
     count: usize = 0,
     capacity: usize = 0,
     code: ?[]u8 = null,
-    constants: *value.ValueArray,
+    // constants: *value.ValueArray,
+    constants: std.ArrayList(value.Value),
     lines: ?[]usize = null,
 
     pub fn init(allocator: std.mem.Allocator) *Chunk {
         const arena = std.heap.ArenaAllocator.init(allocator);
         const chunk = allocator.create(Chunk) catch unreachable;
-        const constants = value.ValueArray.init(allocator);
+        // const constants = value.ValueArray.init(allocator);
+        const constants = std.ArrayList(value.Value).init(allocator);
         chunk.* = .{
             .arena = arena,
             .constants = constants,
@@ -72,8 +74,10 @@ pub const Chunk = struct {
     }
 
     pub fn addConstant(self: *Self, val: value.Value) !usize {
-        try self.constants.write(val);
-        return self.constants.count - 1;
+        // try self.constants.write(val);
+        // return self.constants.count - 1;
+        try self.constants.append(val);
+        return self.constants.items.len - 1;
     }
 
     pub fn freeChunk(self: *Self) void {

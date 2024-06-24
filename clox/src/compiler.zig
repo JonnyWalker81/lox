@@ -248,7 +248,6 @@ pub const Compiler = struct {
         const prevStart = self.parser.previous.start + 1;
         const prevLength = self.parser.previous.length - 2;
         const strVal: value.Value = .{ .string = self.scnr.source[prevStart .. prevStart + prevLength] };
-        std.debug.print("String: {s}\n", .{strVal.string});
         // const s = try std.fmt.allocPrint(self.arena.allocator(), "{s}", .{strVal.string});
         // try self.v.strings.put(s, void{});
         try self.emitConstant(strVal);
@@ -301,8 +300,8 @@ pub const Compiler = struct {
     }
 
     fn identifierConstant(self: *Self, name: scanner.Token) !u8 {
-        const strVal: value.Value = .{ .string = self.scnr.source[name.start .. name.start + name.length] };
-        const constant = try self.makeConstant(strVal);
+        const strVal = try std.fmt.allocPrint(self.arena.allocator(), "{s}", .{self.scnr.source[name.start .. name.start + name.length]});
+        const constant = try self.makeConstant(.{ .string = strVal });
         return constant;
     }
 
@@ -392,7 +391,6 @@ pub const Compiler = struct {
     }
 
     fn makeConstant(self: *Self, val: value.Value) !u8 {
-        std.debug.print("makeConstant: {s}\n", .{val});
         const constant = try self.currentChunk().addConstant(val);
         if (constant > std.math.maxInt(u8)) {
             self.err("Too many constants in one chunk.");
@@ -403,7 +401,6 @@ pub const Compiler = struct {
     }
 
     fn emitConstant(self: *Self, constant: value.Value) !void {
-        std.debug.print("emitConstant: {s}\n", .{constant});
         try self.emitBytes(@intFromEnum(chunk.OpCode.OpConstant), try self.makeConstant(constant));
     }
 

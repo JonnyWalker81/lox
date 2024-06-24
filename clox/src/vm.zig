@@ -36,7 +36,7 @@ pub const VM = struct {
     stack: [StackSize]value.Value,
     stackTop: usize = 0,
     comp: compiler.Compiler,
-    globals: std.StringHashMap(*value.Value),
+    globals: std.StringHashMap(value.Value),
     // strings: std.StringHashMap(void),
 
     pub fn init(allocator: std.mem.Allocator) *Self {
@@ -48,7 +48,7 @@ pub const VM = struct {
             .arena = std.heap.ArenaAllocator.init(allocator),
             .stack = stack,
             .comp = compiler.Compiler.init(allocator),
-            .globals = std.StringHashMap(*value.Value).init(allocator),
+            .globals = std.StringHashMap(value.Value).init(allocator),
             // .strings = std.StringHashMap(void).init(allocator),
         };
         return vm;
@@ -76,7 +76,6 @@ pub const VM = struct {
     }
 
     fn push(self: *Self, v: value.Value) void {
-        std.debug.print("pushing value: {s}\n", .{v});
         self.stack[self.stackTop] = v;
         self.stackTop += 1;
     }
@@ -86,8 +85,8 @@ pub const VM = struct {
         return self.stack[self.stackTop];
     }
 
-    fn peek(self: *Self, distance: usize) *value.Value {
-        return &self.stack[self.stackTop - 1 - distance];
+    fn peek(self: *Self, distance: usize) value.Value {
+        return self.stack[self.stackTop - 1 - distance];
     }
 
     fn readByte(self: *Self) u8 {
@@ -154,7 +153,7 @@ pub const VM = struct {
                     const name = self.read_constant();
                     if (self.globals.contains(name.stringValue())) {
                         const val = self.globals.get(name.stringValue());
-                        self.push(val.?.*);
+                        self.push(val.?);
                     } else {
                         self.runtimeError("Undefined variable '{s}'", .{name.stringValue()});
                         return InterpreterError.runtime_error;
@@ -162,7 +161,8 @@ pub const VM = struct {
                 },
                 .OpDefineGlobal => {
                     const name = self.read_constant();
-                    try self.globals.put(name.stringValue(), self.peek(0));
+                    const val = self.peek(0);
+                    try self.globals.put(name.stringValue(), val);
                     _ = self.pop();
                     // try self.strings.put(name.stringValue(), void{});
                     // debug.printValue(name);
@@ -209,8 +209,6 @@ pub const VM = struct {
 
         const b = self.pop();
         const a = self.pop();
-        std.debug.print("a: {s}\n", .{a});
-        std.debug.print("b: {s}\n", .{b});
         switch (op) {
             .greater => {
                 const result = .{ .bool = a.numberValue() > b.numberValue() };
@@ -263,7 +261,7 @@ pub const VM = struct {
     }
 
     fn run_negate(self: *Self) !void {
-        switch (self.peek(0).*) {
+        switch (self.peek(0)) {
             .number => {
                 const a = self.pop();
                 self.push(.{ .number = -a.number });
@@ -284,27 +282,20 @@ pub const VM = struct {
 
     fn run_constant(self: *Self) !void {
         if (self.chnk) |c| {
-            if (c.constants.values) |constants| {
-                std.debug.print("  == reading constants: {any}\n", .{constants});
-                const b = self.readByte();
-                std.debug.print("  == reading constant: {d}\n", .{b});
-                const constant = constants[b];
+            const b = self.readByte();
+            const constant = c.constants.items[b];
 
-                self.push(constant);
-                // debug.printValue(constant);
-                // std.debug.print("\n", .{});
-            }
+            self.push(constant);
+            // debug.printValue(constant);
+            // std.debug.print("\n", .{});
+            // }
         }
     }
 
     fn read_constant(self: *Self) value.Value {
         if (self.chnk) |c| {
-            if (c.constants.values) |constants| {
-                std.debug.print("reading constants: {any}\n", .{constants});
-                const b = self.readByte();
-                std.debug.print("reading constant: {d}\n", .{b});
-                return constants[b];
-            }
+            const b = self.readByte();
+            return c.constants.items[b];
         }
 
         return .nil;
