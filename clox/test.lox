@@ -3,5 +3,18 @@ print 3 * 4;
 var breakfast = "beignets";
 var beverage = "cafe au lait";
 breakfast = "beignets with " + beverage;
+{
+   var a = "inner a";
+   print a;
+}
+
+var a = "outter a";
+print a;
 
 print breakfast;
+
+if(false) {
+   print "if statement";
+} else {
+   print "else statement block";
+}

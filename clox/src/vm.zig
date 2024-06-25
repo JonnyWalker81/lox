@@ -101,6 +101,19 @@ pub const VM = struct {
         return 0;
     }
 
+    fn readShort(self: *Self) u16 {
+        if (self.chnk) |c| {
+            if (c.code) |code| {
+                self.ip += 2;
+                const b2: u16 = code[self.ip - 2];
+                const b1: u16 = code[self.ip - 1];
+                return b2 << 8 | b1;
+            }
+        }
+
+        return 0;
+    }
+
     pub fn interpret(self: *Self, source: []const u8) !InterpretResult {
         const c = try self.comp.compile(source);
         defer c.deinit();
@@ -133,6 +146,17 @@ pub const VM = struct {
                 .OpPrint => {
                     try self.run_print();
                 },
+                .OpJump => {
+                    const offset = self.readShort();
+                    self.ip += offset;
+                },
+                .OpJumpIfFalse => {
+                    const offset = self.readShort();
+                    const val = self.peek(0);
+                    if (val.isFalsey()) {
+                        self.ip += offset;
+                    }
+                },
                 .OpReturn => return InterpretResult.ok,
                 .OpConstant => {
                     try self.run_constant();
@@ -148,6 +172,14 @@ pub const VM = struct {
                 },
                 .OpPop => {
                     _ = self.pop();
+                },
+                .OpGetLocal => {
+                    const slot = self.readByte();
+                    self.push(self.stack[slot]);
+                },
+                .OpSetLocal => {
+                    const slot = self.readByte();
+                    self.stack[slot] = self.peek(0);
                 },
                 .OpGetGlobal => {
                     const name = self.read_constant();

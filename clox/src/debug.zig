@@ -34,6 +34,12 @@ pub fn disassembleInstruction(c: *chunk.Chunk, offset: usize) usize {
             .OpPrint => {
                 return simpleInstruction("OP_PRINT", offset);
             },
+            .OpJump => {
+                return jumpInstruction("OP_JUMP", 1, c, offset);
+            },
+            .OpJumpIfFalse => {
+                return jumpInstruction("OP_JUMP_IF_FALSE", 1, c, offset);
+            },
             .OpReturn => {
                 return simpleInstruction("OP_RETURN", offset);
             },
@@ -51,6 +57,12 @@ pub fn disassembleInstruction(c: *chunk.Chunk, offset: usize) usize {
             },
             .OpPop => {
                 return simpleInstruction("OP_POP", offset);
+            },
+            .OpGetLocal => {
+                return byteInstruction("OP_GET_LOCAL", c, offset);
+            },
+            .OpSetLocal => {
+                return byteInstruction("OP_SET_LOCAL", c, offset);
             },
             .OpGetGlobal => {
                 return constantInstruction("OP_GET_GLOBAL", c, offset);
@@ -103,6 +115,23 @@ pub fn disassembleInstruction(c: *chunk.Chunk, offset: usize) usize {
 fn simpleInstruction(name: []const u8, offset: usize) usize {
     std.debug.print("{s}\n", .{name});
     return offset + 1;
+}
+
+fn byteInstruction(name: []const u8, c: *chunk.Chunk, offset: usize) usize {
+    if (c.code) |code| {
+        const slot: u8 = code[offset + 1];
+        std.debug.print("{s} {d:4}\n", .{ name, slot });
+    }
+    return offset + 2;
+}
+
+fn jumpInstruction(name: []const u8, sign: i32, c: *chunk.Chunk, offset: usize) usize {
+    if (c.code) |code| {
+        var jump: u16 = @intCast(@as(u16, code[offset + 1]) << 8);
+        jump |= @intCast(code[offset + 2]);
+        std.debug.print("{s} {d:4} -> {d}\n", .{ name, offset, offset + 3 + @as(u16, @intCast(sign)) * jump });
+    }
+    return offset + 3;
 }
 
 fn constantInstruction(name: []const u8, c: *chunk.Chunk, offset: usize) usize {
