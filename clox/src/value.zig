@@ -1,5 +1,22 @@
 const std = @import("std");
 const memory = @import("memory.zig");
+const chunk = @import("chunk.zig");
+
+pub const Function = struct {
+    const Self = @This();
+
+    allocator: std.mem.Allocator,
+    arity: u8 = 0,
+    chnk: chunk.Chunk,
+    name: []const u8 = undefined,
+
+    pub fn init(allocator: std.mem.Allocator) Self {
+        return .{
+            .allocator = allocator,
+            .chnk = chunk.Chunk.init(allocator),
+        };
+    }
+};
 
 pub const Value = union(enum) {
     const Self = @This();
@@ -8,6 +25,7 @@ pub const Value = union(enum) {
     nil,
     number: f64,
     string: []const u8,
+    function: Function,
 
     pub fn isNil(self: Value) bool {
         return self == .nil;
@@ -30,6 +48,13 @@ pub const Value = union(enum) {
     pub fn isString(self: Value) bool {
         switch (self) {
             .string => return true,
+            else => return false,
+        }
+    }
+
+    pub fn isFunction(self: Value) bool {
+        switch (self) {
+            .function => return true,
             else => return false,
         }
     }
@@ -108,6 +133,9 @@ pub const Value = union(enum) {
             },
             .string => |s| {
                 try writer.print("{s}", .{s});
+            },
+            .function => |f| {
+                try writer.print("<fn {s}>", .{f.name});
             },
         }
     }

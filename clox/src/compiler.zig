@@ -51,7 +51,7 @@ const rules = [_]ParseRule{
     .{ .prefixFn = Compiler.variable, .infixFn = null, .precedence = .none }, // .identifier
     .{ .prefixFn = Compiler.string, .infixFn = null, .precedence = .none }, // .string
     .{ .prefixFn = Compiler.number, .infixFn = null, .precedence = .none }, // .number
-    .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .and
+    .{ .prefixFn = null, .infixFn = Compiler.and_, .precedence = .@"and" }, // .and
     .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .class
     .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .else
     .{ .prefixFn = Compiler.literal, .infixFn = null, .precedence = .none }, // .false
@@ -59,7 +59,7 @@ const rules = [_]ParseRule{
     .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .fun
     .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .if
     .{ .prefixFn = Compiler.literal, .infixFn = null, .precedence = .none }, // .nil
-    .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .or
+    .{ .prefixFn = null, .infixFn = Compiler.or_, .precedence = .@"or" }, // .or
     .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .print
     .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .return
     .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .super
@@ -199,6 +199,18 @@ pub const Compiler = struct {
         try self.emitByte(byte2);
     }
 
+    fn emitLoop(self: *Self, loopStart: u16) !void {
+        try self.emitByte(@intFromEnum(chunk.OpCode.OpLoop));
+
+        const offset: u16 = @intCast(self.currentChunk().count - loopStart + 2);
+        if (offset > std.math.maxInt(u16)) {
+            self.err("Loop body too large.");
+        }
+
+        try self.emitByte(@intCast((offset >> 8) & 0xff));
+        try self.emitByte(@intCast(offset & 0xff));
+    }
+
     fn emitJump(self: *Self, instruction: u8) !u16 {
         try self.emitByte(instruction);
         try self.emitByte(0xff);
@@ -272,6 +284,17 @@ pub const Compiler = struct {
         const numVal: value.Value = .{ .number = val };
 
         try self.emitConstant(numVal);
+    }
+
+    fn or_(self: *Self, _: bool) !void {
+        const elseJump = try self.emitJump(@intFromEnum(chunk.OpCode.OpJumpIfFalse));
+        const endJump = try self.emitJump(@intFromEnum(chunk.OpCode.OpJump));
+
+        try self.patchJump(elseJump);
+        try self.emitByte(@intFromEnum(chunk.OpCode.OpPop));
+
+        try self.parsePrecedence(.@"or");
+        try self.patchJump(endJump);
     }
 
     fn string(self: *Self, _: bool) !void {
@@ -433,6 +456,13 @@ pub const Compiler = struct {
         try self.emitBytes(@intFromEnum(chunk.OpCode.OpDefineGlobal), global);
     }
 
+    fn and_(self: *Self, _: bool) !void {
+        const endJump = try self.emitJump(@intFromEnum(chunk.OpCode.OpJumpIfFalse));
+        try self.emitByte(@intFromEnum(chunk.OpCode.OpPop));
+        try self.parsePrecedence(.@"and");
+        try self.patchJump(endJump);
+    }
+
     fn getRule(self: *Self, typ: scanner.TokenType) !ParseRule {
         _ = self;
         return rules[@intFromEnum(typ)];
@@ -470,6 +500,54 @@ pub const Compiler = struct {
         try self.emitByte(@intFromEnum(chunk.OpCode.OpPop));
     }
 
+    fn forStatement(self: *Self) !void {
+        try self.beginScope();
+
+        _ = try self.consume(@intFromEnum(scanner.TokenType.left_paren), "Expect '(' after 'for'.");
+        if (try self.match(.semicolon)) {
+            // No initializer.
+        } else if (try self.match(.@"var")) {
+            try self.varDeclaration();
+        } else {
+            try self.expressionStatement();
+        }
+
+        var loopStart: u16 = @intCast(self.currentChunk().count);
+        var exitJump: i16 = -1;
+        if (!try self.match(.semicolon)) {
+            try self.expression();
+            _ = try self.consume(@intFromEnum(scanner.TokenType.semicolon), "Expect ';' after loop condition.");
+
+            exitJump = @intCast(try self.emitJump(@intFromEnum(chunk.OpCode.OpJumpIfFalse)));
+            try self.emitByte(@intFromEnum(chunk.OpCode.OpPop));
+        }
+
+        // _ = try self.consume(@intFromEnum(scanner.TokenType.right_paren), "Expect ')' after for clauses.");
+
+        if (!try self.match(.right_paren)) {
+            const bodyJump = try self.emitJump(@intFromEnum(chunk.OpCode.OpJump));
+            const incrementStart: u16 = @intCast(self.currentChunk().count);
+            try self.expression();
+            try self.emitByte(@intFromEnum(chunk.OpCode.OpPop));
+            _ = try self.consume(@intFromEnum(scanner.TokenType.right_paren), "Expect ')' after for clauses.");
+
+            try self.emitLoop(loopStart);
+            loopStart = incrementStart;
+            try self.patchJump(bodyJump);
+        }
+
+        try self.statement();
+
+        try self.emitLoop(loopStart);
+
+        if (exitJump != -1) {
+            try self.patchJump(@intCast(exitJump));
+            try self.emitByte(@intFromEnum(chunk.OpCode.OpPop));
+        }
+
+        try self.endScope();
+    }
+
     fn ifStatement(self: *Self) !void {
         _ = try self.consume(@intFromEnum(scanner.TokenType.left_paren), "Expect '(' after 'if'.");
         try self.expression();
@@ -501,6 +579,23 @@ pub const Compiler = struct {
         try self.expression();
         _ = try self.consume(@intFromEnum(scanner.TokenType.semicolon), "Expect ';' after value.");
         try self.emitByte(@intFromEnum(chunk.OpCode.OpPrint));
+    }
+
+    fn whileStatement(self: *Self) !void {
+        const loopStart: u16 = @intCast(self.currentChunk().count);
+
+        _ = try self.consume(@intFromEnum(scanner.TokenType.left_paren), "Expect '(' after 'while'.");
+        try self.expression();
+        _ = try self.consume(@intFromEnum(scanner.TokenType.right_paren), "Expect ')' after condition.");
+
+        const exitJump = try self.emitJump(@intFromEnum(chunk.OpCode.OpJumpIfFalse));
+
+        try self.emitByte(@intFromEnum(chunk.OpCode.OpPop));
+        try self.statement();
+
+        try self.emitLoop(loopStart);
+        try self.patchJump(exitJump);
+        try self.emitByte(@intFromEnum(chunk.OpCode.OpPop));
     }
 
     fn synchronize(self: *Self) !void {
@@ -535,8 +630,12 @@ pub const Compiler = struct {
     fn statement(self: *Self) anyerror!void {
         if (try self.match(.print)) {
             try self.printStatement();
+        } else if (try self.match(.@"for")) {
+            try self.forStatement();
         } else if (try self.match(.@"if")) {
             try self.ifStatement();
+        } else if (try self.match(.@"while")) {
+            try self.whileStatement();
         } else if (try self.match(.left_brace)) {
             try self.beginScope();
             try self.block();

@@ -157,6 +157,10 @@ pub const VM = struct {
                         self.ip += offset;
                     }
                 },
+                .OpLoop => {
+                    const offset = self.readShort();
+                    self.ip -= offset;
+                },
                 .OpReturn => return InterpretResult.ok,
                 .OpConstant => {
                     try self.run_constant();

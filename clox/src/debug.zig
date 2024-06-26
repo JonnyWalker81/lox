@@ -40,6 +40,9 @@ pub fn disassembleInstruction(c: *chunk.Chunk, offset: usize) usize {
             .OpJumpIfFalse => {
                 return jumpInstruction("OP_JUMP_IF_FALSE", 1, c, offset);
             },
+            .OpLoop => {
+                return jumpInstruction("OP_LOOP", -1, c, offset);
+            },
             .OpReturn => {
                 return simpleInstruction("OP_RETURN", offset);
             },
@@ -129,7 +132,8 @@ fn jumpInstruction(name: []const u8, sign: i32, c: *chunk.Chunk, offset: usize) 
     if (c.code) |code| {
         var jump: u16 = @intCast(@as(u16, code[offset + 1]) << 8);
         jump |= @intCast(code[offset + 2]);
-        std.debug.print("{s} {d:4} -> {d}\n", .{ name, offset, offset + 3 + @as(u16, @intCast(sign)) * jump });
+        const loc = @as(i32, @intCast(offset)) + 3 + sign * @as(i32, @intCast(jump));
+        std.debug.print("{s} {d:4} -> {d}\n", .{ name, offset, loc });
     }
     return offset + 3;
 }
