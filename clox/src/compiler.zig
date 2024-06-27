@@ -96,6 +96,11 @@ pub const Local = struct {
 
 const LocalsCount = std.math.maxInt(u8) + 1;
 
+const FunctionType = enum {
+    function,
+    script,
+};
+
 pub const Compiler = struct {
     const Self = @This();
 
@@ -103,6 +108,8 @@ pub const Compiler = struct {
     parser: Parser,
     compilingChunk: *chunk.Chunk = undefined,
     scnr: scanner.Scanner = undefined,
+    function: value.Value = undefined,
+    funcType: FunctionType,
     locals: [LocalsCount]Local = undefined,
     localCount: usize = 0,
     scopeDepth: i32 = 0,
@@ -110,22 +117,31 @@ pub const Compiler = struct {
 
     pub fn init(allocator: std.mem.Allocator) Compiler {
         const parser = Parser.init();
-        return Compiler{
+        var c = Compiler{
             .arena = std.heap.ArenaAllocator.init(allocator),
             .parser = parser,
+            .funcType = FunctionType.script,
+            .function = .{ .function = value.Function.init(allocator) },
         };
+
+        const local = &c.locals[c.localCount];
+        c.localCount += 1;
+        local.depth = 0;
+        local.name.start = 0;
+        local.name.length = 0;
+
+        return c;
     }
 
     pub fn deinit(self: *Compiler) void {
         self.arena.deinit();
     }
 
-    pub fn compile(self: *Compiler, source: []const u8) !*chunk.Chunk {
+    pub fn compile(self: *Self, source: []const u8) !value.Value {
         self.scnr = scanner.Scanner.init(self.arena.allocator(), source);
         // self.v = v;
         const c = chunk.Chunk.init(self.arena.allocator());
         self.compilingChunk = c;
-        defer self.endCompiler() catch unreachable;
         _ = try self.advance();
         while (!try self.match(scanner.TokenType.eof)) {
             try self.declaration();
@@ -151,7 +167,8 @@ pub const Compiler = struct {
             return scanner.CompilerError.InvalidSyntax;
         }
 
-        return c;
+        const f = try self.endCompiler();
+        return f;
     }
 
     fn advance(self: *Self) !void {
@@ -218,12 +235,16 @@ pub const Compiler = struct {
         return @intCast(self.currentChunk().count - 2);
     }
 
-    fn endCompiler(self: *Self) !void {
+    fn endCompiler(self: *Self) !value.Value {
         try self.emitReturn();
 
+        const func = self.function;
+
         if (build_options.debug_print_code and !self.parser.hadError) {
-            debug.disassembleChunk(self.currentChunk(), "code");
+            debug.disassembleChunk(self.currentChunk(), if (func.functionValue().name.len > 0) "code" else "<script>");
         }
+
+        return func;
     }
 
     fn beginScope(self: *Self) !void {
@@ -677,7 +698,7 @@ pub const Compiler = struct {
     }
 
     fn currentChunk(self: *Self) *chunk.Chunk {
-        return self.compilingChunk;
+        return self.function.functionValue().chnk;
     }
 
     fn errorAtCurrent(self: *Self, message: []const u8) void {

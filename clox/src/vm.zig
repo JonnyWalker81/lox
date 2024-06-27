@@ -27,6 +27,12 @@ const BinaryOp = enum {
 
 const StackSize = 256;
 
+pub const CallFrame = struct {
+    function: value.Function,
+    ip: usize = 0,
+    slot: usize = 0,
+};
+
 pub const VM = struct {
     const Self = @This();
 

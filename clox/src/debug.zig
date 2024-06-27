@@ -164,5 +164,8 @@ pub fn printValue(val: value.Value) void {
         .string => |s| {
             std.debug.print("{s}", .{s});
         },
+        .function => |f| {
+            std.debug.print("<fn {d}>", .{f.name});
+        },
     }
 }
