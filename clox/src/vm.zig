@@ -25,29 +25,35 @@ const BinaryOp = enum {
     less,
 };
 
-const StackSize = 256;
+const FrameMax = 64;
+const StackSize = FrameMax * 256;
 
 pub const CallFrame = struct {
     function: value.Function,
     ip: usize = 0,
-    slot: usize = 0,
+    slots: [*]value.Value = undefined,
 };
 
 pub const VM = struct {
     const Self = @This();
 
     arena: std.heap.ArenaAllocator,
-    chnk: ?*chunk.Chunk = null,
-    ip: usize = 0,
+    // chnk: ?*chunk.Chunk = null,
+    // ip: usize = 0,
     stack: [StackSize]value.Value,
     stackTop: usize = 0,
     comp: compiler.Compiler,
     globals: std.StringHashMap(value.Value),
+    frames: [FrameMax]CallFrame,
+    frameCount: usize = 0,
     // strings: std.StringHashMap(void),
 
     pub fn init(allocator: std.mem.Allocator) *Self {
         var stack: [StackSize]value.Value = undefined;
         @memset(&stack, undefined);
+
+        var frames: [FrameMax]CallFrame = undefined;
+        @memset(&frames, undefined);
 
         const vm = allocator.create(Self) catch unreachable;
         vm.* = .{
@@ -55,6 +61,7 @@ pub const VM = struct {
             .stack = stack,
             .comp = compiler.Compiler.init(allocator),
             .globals = std.StringHashMap(value.Value).init(allocator),
+            .frames = frames,
             // .strings = std.StringHashMap(void).init(allocator),
         };
         return vm;
@@ -62,9 +69,9 @@ pub const VM = struct {
 
     pub fn deinit(self: *Self) void {
         self.arena.deinit();
-        if (self.chnk) |c| {
-            c.deinit();
-        }
+        // if (self.chnk) |c| {
+        //     c.deinit();
+        // }
 
         self.globals.deinit();
     }
@@ -74,9 +81,10 @@ pub const VM = struct {
     }
 
     fn runtimeError(self: *Self, comptime fmt: []const u8, args: anytype) void {
+        const frame = &self.frames[self.frameCount];
         std.debug.print(fmt, args);
-        const instruction = self.ip - 1;
-        const line = self.chnk.?.lines.?[instruction];
+        const instruction = frame.ip - 1;
+        const line = frame.function.chnk.lines.?[instruction];
         std.debug.print("[line {}] in script\n", .{line});
         self.resetStack();
     }
@@ -96,48 +104,45 @@ pub const VM = struct {
     }
 
     fn readByte(self: *Self) u8 {
-        if (self.chnk) |c| {
-            if (c.code) |code| {
-                const b = code[self.ip];
-                self.ip += 1;
-                return b;
-            }
-        }
-
-        return 0;
+        const frame = &self.frames[self.frameCount];
+        const b = frame.function.chnk.code.?[frame.ip];
+        frame.ip += 1;
+        return b;
     }
 
     fn readShort(self: *Self) u16 {
-        if (self.chnk) |c| {
-            if (c.code) |code| {
-                self.ip += 2;
-                const b2: u16 = code[self.ip - 2];
-                const b1: u16 = code[self.ip - 1];
-                return b2 << 8 | b1;
-            }
-        }
-
-        return 0;
+        const frame = &self.frames[self.frameCount];
+        frame.ip += 2;
+        const b2: u16 = frame.function.chnk.code.?[frame.ip - 2];
+        const b1: u16 = frame.function.chnk.code.?[frame.ip - 1];
+        return b2 << 8 | b1;
     }
 
     pub fn interpret(self: *Self, source: []const u8) !InterpretResult {
         const c = try self.comp.compile(source);
-        defer c.deinit();
 
-        self.chnk = c;
-        self.ip = 0;
+        self.push(c);
+
+        const frame = &self.frames[self.frameCount];
+        frame.* = .{
+            .function = c.functionValue(),
+            .ip = 0,
+            .slots = &self.stack,
+        };
+        self.frameCount += 1;
+        // frame.function = c.functionValue();
+        // frame.ip = 0;
+        // frame.slots = &self.stack;
+
         return try self.run();
-        // self.chnk = c;
-        // self.ip = 0;
-        // return try self.run();
     }
 
     fn run(self: *Self) !InterpretResult {
+        const frame = &self.frames[self.frameCount];
         while (true) {
             if (build_options.debug_trace_execution) {
-                if (self.chnk) |c| {
-                    _ = debug.disassembleInstruction(c, self.ip);
-                }
+                std.debug.print("chnk: {any} ip: {d} ", .{ frame, frame.ip });
+                _ = debug.disassembleInstruction(frame.function.chnk, frame.ip);
 
                 std.debug.print("          ", .{});
                 for (0..self.stackTop) |i| {
@@ -154,18 +159,18 @@ pub const VM = struct {
                 },
                 .OpJump => {
                     const offset = self.readShort();
-                    self.ip += offset;
+                    frame.ip += offset;
                 },
                 .OpJumpIfFalse => {
                     const offset = self.readShort();
                     const val = self.peek(0);
                     if (val.isFalsey()) {
-                        self.ip += offset;
+                        frame.ip += offset;
                     }
                 },
                 .OpLoop => {
                     const offset = self.readShort();
-                    self.ip -= offset;
+                    frame.ip -= offset;
                 },
                 .OpReturn => return InterpretResult.ok,
                 .OpConstant => {
@@ -185,11 +190,11 @@ pub const VM = struct {
                 },
                 .OpGetLocal => {
                     const slot = self.readByte();
-                    self.push(self.stack[slot]);
+                    self.push(frame.slots[slot]);
                 },
                 .OpSetLocal => {
                     const slot = self.readByte();
-                    self.stack[slot] = self.peek(0);
+                    frame.slots[slot] = self.peek(0);
                 },
                 .OpGetGlobal => {
                     const name = self.read_constant();
@@ -250,7 +255,11 @@ pub const VM = struct {
                     try self.run_negate();
                 },
             }
+
+            break;
         }
+
+        return InterpretResult.ok;
     }
 
     fn run_binary_op(self: *Self, op: BinaryOp) !void {
@@ -333,23 +342,19 @@ pub const VM = struct {
     // }
 
     fn run_constant(self: *Self) !void {
-        if (self.chnk) |c| {
-            const b = self.readByte();
-            const constant = c.constants.items[b];
+        const frame = &self.frames[self.frameCount];
+        const b = self.readByte();
+        const constant = frame.function.chnk.constants.items[b];
 
-            self.push(constant);
-            // debug.printValue(constant);
-            // std.debug.print("\n", .{});
-            // }
-        }
+        self.push(constant);
+        // debug.printValue(constant);
+        // std.debug.print("\n", .{});
+        // }
     }
 
     fn read_constant(self: *Self) value.Value {
-        if (self.chnk) |c| {
-            const b = self.readByte();
-            return c.constants.items[b];
-        }
-
-        return .nil;
+        const frame = &self.frames[self.frameCount];
+        const b = self.readByte();
+        return frame.function.chnk.constants.items[b];
     }
 };

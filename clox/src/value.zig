@@ -8,7 +8,7 @@ pub const Function = struct {
     allocator: std.mem.Allocator,
     arity: u8 = 0,
     chnk: *chunk.Chunk,
-    name: []const u8 = undefined,
+    name: []const u8 = "",
 
     pub fn init(allocator: std.mem.Allocator) Self {
         return .{
@@ -83,7 +83,7 @@ pub const Value = union(enum) {
     pub fn functionValue(self: Value) Function {
         switch (self) {
             .function => |f| return f,
-            else => std.debug.panic("expected function, not a function.", .{}),
+            else => @panic("expected function, not a function."),
         }
     }
 
@@ -145,7 +145,7 @@ pub const Value = union(enum) {
                 if (f.name.len > 0) {
                     try writer.print("<fn {s}>", .{f.name});
                 } else {
-                    try writer.print("<script>", .{f.name});
+                    try writer.print("<script> {s}", .{f.name});
                 }
             },
         }
