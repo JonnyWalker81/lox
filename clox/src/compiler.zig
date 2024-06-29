@@ -29,7 +29,7 @@ const ParseRule = struct {
 };
 
 const rules = [_]ParseRule{
-    .{ .prefixFn = Compiler.grouping, .infixFn = null, .precedence = .none }, // .left_paren
+    .{ .prefixFn = Compiler.grouping, .infixFn = Compiler.call, .precedence = .call }, // .left_paren
     .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .left_paren
     .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .left_brace
     .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .right_brace
@@ -79,8 +79,10 @@ const Parser = struct {
     hadError: bool = false,
     panicMode: bool = false,
 
-    pub fn init() Parser {
-        return .{};
+    pub fn init(allocator: std.mem.Allocator) *Parser {
+        const p = allocator.create(Self) catch unreachable;
+        p.* = .{};
+        return p;
     }
 
     pub fn parse(self: *Self, source: []const u8) !void {
@@ -105,18 +107,19 @@ pub const Compiler = struct {
     const Self = @This();
 
     arena: std.heap.ArenaAllocator,
-    parser: Parser,
+    parser: *Parser,
     compilingChunk: *chunk.Chunk = undefined,
-    scnr: scanner.Scanner = undefined,
+    scnr: *scanner.Scanner = undefined,
     function: value.Value = undefined,
     funcType: FunctionType,
     locals: [LocalsCount]Local = undefined,
     localCount: usize = 0,
     scopeDepth: i32 = 0,
+    enclosing: ?*Compiler = null,
     // v: *vm.VM = undefined,
 
     pub fn init(allocator: std.mem.Allocator) Compiler {
-        const parser = Parser.init();
+        const parser = Parser.init(allocator);
         var c = Compiler{
             .arena = std.heap.ArenaAllocator.init(allocator),
             .parser = parser,
@@ -124,11 +127,28 @@ pub const Compiler = struct {
             .function = .{ .function = value.Function.init(allocator) },
         };
 
+        // std.debug.print("Compiler init: {any}\n", .{c.function.functionValue()});
+
         const local = &c.locals[c.localCount];
         c.localCount += 1;
         local.depth = 0;
         local.name.start = 0;
         local.name.length = 0;
+
+        return c;
+    }
+
+    pub fn initWithEnclosing(allocator: std.mem.Allocator, enclosing: *Compiler, typ: FunctionType) Compiler {
+        var c = Compiler.init(allocator);
+        c.parser = enclosing.parser;
+        c.scnr = enclosing.scnr;
+        c.enclosing = enclosing;
+        c.funcType = typ;
+
+        if (typ != .script) {
+            const s = c.scnr.source[c.parser.previous.start .. c.parser.previous.start + c.parser.previous.length];
+            c.function.function.name = std.fmt.allocPrint(allocator, "{s}", .{s}) catch unreachable;
+        }
 
         return c;
     }
@@ -168,6 +188,7 @@ pub const Compiler = struct {
         }
 
         const f = try self.endCompiler();
+
         return f;
     }
 
@@ -238,13 +259,15 @@ pub const Compiler = struct {
     fn endCompiler(self: *Self) !value.Value {
         try self.emitReturn();
 
-        const func = self.function;
+        const f = self.function;
 
         if (build_options.debug_print_code and !self.parser.hadError) {
-            debug.disassembleChunk(self.currentChunk(), if (func.functionValue().name.len > 0) "code" else "<script>");
+            debug.disassembleChunk(self.currentChunk(), if (f.functionValue().name.len > 0) "code" else "<script>");
         }
 
-        return func;
+        // std.debug.print("End compiler: {any}\n", .{func.functionValue()});
+
+        return f;
     }
 
     fn beginScope(self: *Self) !void {
@@ -278,6 +301,11 @@ pub const Compiler = struct {
             .slash => try self.emitByte(@intFromEnum(chunk.OpCode.OpDivide)),
             else => return,
         }
+    }
+
+    fn call(self: *Self, _: bool) !void {
+        const argCount = try self.argumentList();
+        try self.emitBytes(@intFromEnum(chunk.OpCode.OpCall), argCount);
     }
 
     fn literal(self: *Self, _: bool) !void {
@@ -466,6 +494,10 @@ pub const Compiler = struct {
     }
 
     fn markInitialized(self: *Self) !void {
+        if (self.scopeDepth == 0) {
+            return;
+        }
+
         self.locals[self.localCount - 1].depth = self.scopeDepth;
     }
 
@@ -475,6 +507,28 @@ pub const Compiler = struct {
             return;
         }
         try self.emitBytes(@intFromEnum(chunk.OpCode.OpDefineGlobal), global);
+    }
+
+    fn argumentList(self: *Self) !u8 {
+        var argCount: u8 = 0;
+        if (!self.check(.right_paren)) {
+            try self.expression();
+            if (argCount == std.math.maxInt(u8)) {
+                self.err("Cannot have more than 255 arguments.");
+            }
+            argCount += 1;
+
+            while (try self.match(.comma)) {
+                try self.expression();
+                if (argCount == std.math.maxInt(u8)) {
+                    self.err("Cannot have more than 255 arguments.");
+                }
+                argCount += 1;
+            }
+        }
+
+        _ = try self.consume(@intFromEnum(scanner.TokenType.right_paren), "Expect ')' after arguments.");
+        return argCount;
     }
 
     fn and_(self: *Self, _: bool) !void {
@@ -499,6 +553,48 @@ pub const Compiler = struct {
         }
 
         _ = try self.consume(@intFromEnum(scanner.TokenType.right_brace), "Expect '}' after block.");
+    }
+
+    fn func(self: *Self, typ: FunctionType) !void {
+        var compiler = Compiler.initWithEnclosing(self.arena.allocator(), self, typ);
+        try compiler.beginScope();
+
+        _ = try compiler.consume(@intFromEnum(scanner.TokenType.left_paren), "Expect '(' after function name.");
+
+        if (!compiler.check(.right_paren)) {
+            compiler.function.function.incrementArity();
+            if (compiler.function.functionValue().arity > std.math.maxInt(u8)) {
+                self.err("Cannot have more than 255 parameters.");
+            }
+
+            var paramConstant = try compiler.parseVariable("Expect parameter name.");
+            try compiler.defineVariable(paramConstant);
+
+            while (try compiler.match(.comma)) {
+                compiler.function.function.incrementArity();
+                if (compiler.function.functionValue().arity > std.math.maxInt(u8)) {
+                    self.err("Cannot have more than 255 parameters.");
+                }
+
+                paramConstant = try compiler.parseVariable("Expect parameter name.");
+                try compiler.defineVariable(paramConstant);
+            }
+        }
+
+        _ = try compiler.consume(@intFromEnum(scanner.TokenType.right_paren), "Expect ')' after parameters.");
+
+        _ = try compiler.consume(@intFromEnum(scanner.TokenType.left_brace), "Expect '{' before function body.");
+        try compiler.block();
+
+        const f = try compiler.endCompiler();
+        try self.emitBytes(@intFromEnum(chunk.OpCode.OpConstant), try self.makeConstant(f));
+    }
+
+    fn funDeclaration(self: *Self) !void {
+        const global = try self.parseVariable("Expect function name.");
+        try self.markInitialized();
+        try self.func(.function);
+        try self.defineVariable(global);
     }
 
     fn varDeclaration(self: *Self) !void {
@@ -637,7 +733,9 @@ pub const Compiler = struct {
     }
 
     fn declaration(self: *Self) anyerror!void {
-        if (try self.match(.@"var")) {
+        if (try self.match(.fun)) {
+            try self.funDeclaration();
+        } else if (try self.match(.@"var")) {
             try self.varDeclaration();
         } else {
             try self.statement();

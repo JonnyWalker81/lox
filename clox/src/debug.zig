@@ -43,6 +43,9 @@ pub fn disassembleInstruction(c: *chunk.Chunk, offset: usize) usize {
             .OpLoop => {
                 return jumpInstruction("OP_LOOP", -1, c, offset);
             },
+            .OpCall => {
+                return byteInstruction("OP_CALL", c, offset);
+            },
             .OpReturn => {
                 return simpleInstruction("OP_RETURN", offset);
             },
@@ -165,7 +168,7 @@ pub fn printValue(val: value.Value) void {
             std.debug.print("{s}", .{s});
         },
         .function => |f| {
-            std.debug.print("<fn {d}>", .{f.name});
+            std.debug.print("<fn {s}>", .{f.name});
         },
     }
 }

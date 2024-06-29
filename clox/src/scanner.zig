@@ -131,11 +131,14 @@ pub const Scanner = struct {
     line: usize = 1,
     source: []const u8,
 
-    pub fn init(allocator: std.mem.Allocator, source: []const u8) Scanner {
-        return Scanner{
+    pub fn init(allocator: std.mem.Allocator, source: []const u8) *Scanner {
+        const s = allocator.create(Self) catch unreachable;
+        s.* = .{
             .arena = std.heap.ArenaAllocator.init(allocator),
             .source = source,
         };
+
+        return s;
     }
 
     pub fn scanToken(self: *Self) !Token {

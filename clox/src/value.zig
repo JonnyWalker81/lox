@@ -16,6 +16,14 @@ pub const Function = struct {
             .chnk = chunk.Chunk.init(allocator),
         };
     }
+
+    pub fn deinit(self: *Self) void {
+        self.chnk.deinit();
+    }
+
+    pub fn incrementArity(self: *Self) void {
+        self.arity += 1;
+    }
 };
 
 pub const Value = union(enum) {
@@ -86,6 +94,13 @@ pub const Value = union(enum) {
             else => @panic("expected function, not a function."),
         }
     }
+
+    // pub fn incrementArity(self: *Value) void {
+    //     switch (self) {
+    //         .function => |f| f.incrementArity(),
+    //         else => @panic("expected function, not a function."),
+    //     }
+    // }
 
     pub fn isFalsey(self: Value) bool {
         switch (self) {

@@ -6,3 +6,6 @@
 /jlox/zig-cache/
 /clox/zig-out/
 /clox/zig-cache/
+/clox/.zig-cache/
+/clox/testout.txt
+/clox/test.out

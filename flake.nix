@@ -1,7 +1,11 @@
 {
   description = "Example kickstart Zig application project.";
 
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+
+    zig.url = "github:mitchellh/zig-overlay";
+  };
 
   outputs = inputs@{ flake-parts, ... }:
     flake-parts.lib.mkFlake { inherit inputs; } {
@@ -14,6 +18,13 @@
           inherit (dockerTools) buildImage;
           name = "jlox";
           version = "0.1.0";
+          overlays = [
+            inputs.zig.overlays.default
+            (final: prev: {
+              # ... things you need to patch ...
+              zig = inputs.zig-overlay;
+            })
+          ];
         in {
           packages = {
             default = stdenv.mkDerivation {

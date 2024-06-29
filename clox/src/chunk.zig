@@ -10,6 +10,7 @@ pub const OpCode = enum(u8) {
     OpJump,
     OpJumpIfFalse,
     OpLoop,
+    OpCall,
     OpReturn,
     OpConstant,
     OpNil,
