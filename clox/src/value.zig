@@ -26,6 +26,32 @@ pub const Function = struct {
     }
 };
 
+pub const NativeFn = *const fn (u8, []Value) Value;
+
+pub const Native = struct {
+    allocator: std.mem.Allocator,
+    function: NativeFn,
+
+    pub fn init(allocator: std.mem.Allocator, function: NativeFn) Native {
+        return .{
+            .allocator = allocator,
+            .function = function,
+        };
+    }
+};
+
+pub const Closure = struct {
+    allocator: std.mem.Allocator,
+    function: *Function,
+
+    pub fn init(allocator: std.mem.Allocator, function: *Function) Closure {
+        return .{
+            .allocator = allocator,
+            .function = function,
+        };
+    }
+};
+
 pub const Value = union(enum) {
     const Self = @This();
 
@@ -34,6 +60,8 @@ pub const Value = union(enum) {
     number: f64,
     string: []const u8,
     function: Function,
+    native: Native,
+    closure: Closure,
 
     pub fn isNil(self: Value) bool {
         return self == .nil;
@@ -67,6 +95,20 @@ pub const Value = union(enum) {
         }
     }
 
+    pub fn isNative(self: Value) bool {
+        switch (self) {
+            .native => return true,
+            else => return false,
+        }
+    }
+
+    pub fn isClosure(self: Value) bool {
+        switch (self) {
+            .closure => return true,
+            else => return false,
+        }
+    }
+
     pub fn boolValue(self: Value) bool {
         switch (self) {
             .bool => |b| return b,
@@ -95,12 +137,19 @@ pub const Value = union(enum) {
         }
     }
 
-    // pub fn incrementArity(self: *Value) void {
-    //     switch (self) {
-    //         .function => |f| f.incrementArity(),
-    //         else => @panic("expected function, not a function."),
-    //     }
-    // }
+    pub fn nativeValue(self: Value) Native {
+        switch (self) {
+            .native => |n| return n,
+            else => @panic("expected native, not a native."),
+        }
+    }
+
+    pub fn closureValue(self: Value) Closure {
+        switch (self) {
+            .closure => |c| return c,
+            else => @panic("expected closure, not a closure."),
+        }
+    }
 
     pub fn isFalsey(self: Value) bool {
         switch (self) {
@@ -163,9 +212,28 @@ pub const Value = union(enum) {
                     try writer.print("<script> {s}", .{f.name});
                 }
             },
+            .native => |_| {
+                try writer.print("<native fn>", .{});
+            },
+            .closure => |c| {
+                printFunctionName(writer, c.function);
+                // if (c.function.name.len > 0) {
+                //     try writer.print("<fn {s}>", .{c.function.name});
+                // } else {
+                //     try writer.print("<script>", .{});
+                // }
+            },
         }
     }
 };
+
+fn printFunctionName(writer: anytype, function: *Function) !void {
+    if (function.name.len > 0) {
+        try writer.print("<fn {s}>", .{function.name});
+    } else {
+        try writer.print("<script>", .{});
+    }
+}
 
 pub const ValueArray = struct {
     const Self = @This();

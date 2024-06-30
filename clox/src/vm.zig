@@ -31,8 +31,14 @@ const StackSize = FrameMax * 256;
 pub const CallFrame = struct {
     function: value.Value,
     ip: usize = 0,
-    slots: [*]value.Value = undefined,
+    // slots: [*]value.Value = undefined,
+    slot: usize,
+    slots: *[StackSize]value.Value,
 };
+
+pub fn clockNative(_: u8, _: []value.Value) value.Value {
+    return .{ .number = @floatFromInt(@divFloor(std.time.milliTimestamp(), 1000)) };
+}
 
 pub const VM = struct {
     const Self = @This();
@@ -64,6 +70,8 @@ pub const VM = struct {
             .frames = frames,
             // .strings = std.StringHashMap(void).init(allocator),
         };
+
+        vm.defineNative("clock", clockNative) catch unreachable;
         return vm;
     }
 
@@ -81,12 +89,36 @@ pub const VM = struct {
     }
 
     fn runtimeError(self: *Self, comptime fmt: []const u8, args: anytype) void {
-        const frame = &self.frames[self.frameCount - 1];
         std.debug.print(fmt, args);
-        const instruction = frame.ip - 1;
-        const line = frame.function.functionValue().chnk.lines.?[instruction];
-        std.debug.print("[line {}] in script\n", .{line});
+        var i: i32 = @intCast(self.frameCount - 1);
+        while (i >= 0) : (i -= 1) {
+            const frame = &self.frames[@intCast(i)];
+            const instruction = frame.ip - 1;
+            const line = frame.function.functionValue().chnk.lines.?[instruction];
+            std.debug.print("[line {}] in ", .{line});
+            if (frame.function.functionValue().name.len == 0) {
+                std.debug.print("script\n", .{});
+            } else {
+                std.debug.print("{s}()\n", .{frame.function.functionValue().name});
+            }
+        }
+
+        // const instruction = frame.ip - 1;
+        // const line = frame.function.functionValue().chnk.lines.?[instruction];
+        // std.debug.print("[line {}] in script\n", .{line});
         self.resetStack();
+    }
+
+    fn defineNative(self: *Self, name: []const u8, function: value.NativeFn) !void {
+        self.push(.{ .string = name });
+        self.push(.{ .native = .{
+            .allocator = self.arena.allocator(),
+            .function = function,
+        } });
+        // const val = .{ .native = .{ .function = function } };
+        try self.globals.put(self.stack[0].stringValue(), self.stack[1]);
+        _ = self.pop();
+        _ = self.pop();
     }
 
     fn push(self: *Self, v: value.Value) void {
@@ -112,6 +144,17 @@ pub const VM = struct {
                 // }
                 return self.call(f, argCount);
             },
+            .native => |n| {
+                const native = n.function;
+                // if (result.isError()) {
+                //     self.runtimeError("Error in native function", .{});
+                //     return false;
+                // }
+                const result = native(argCount, self.stack[self.stackTop - argCount .. self.stackTop]);
+                self.stackTop -= argCount + 1;
+                self.push(result);
+                return true;
+            },
             else => {
                 self.runtimeError("Can only call functions and classes", .{});
                 return false;
@@ -121,7 +164,7 @@ pub const VM = struct {
 
     fn call(self: *Self, f: value.Function, argCount: u8) bool {
         if (f.arity != argCount) {
-            self.runtimeError("Expected {d} arguments but got {d}", .{ f.arity, argCount });
+            self.runtimeError("Expected {d} arguments but got {d}.\n", .{ f.arity, argCount });
             return false;
         }
 
@@ -134,7 +177,8 @@ pub const VM = struct {
         frame.* = .{
             .function = .{ .function = f },
             .ip = 0,
-            .slots = @ptrCast(&self.stack[self.stackTop - argCount - 1]),
+            .slot = self.stackTop - argCount - 1,
+            .slots = &self.stack,
         };
         self.frameCount += 1;
         return true;
@@ -211,7 +255,18 @@ pub const VM = struct {
                     }
                     frame = &self.frames[self.frameCount - 1];
                 },
-                .OpReturn => return InterpretResult.ok,
+                .OpReturn => {
+                    const result = self.pop();
+                    self.frameCount -= 1;
+                    if (self.frameCount == 0) {
+                        _ = self.pop();
+                        return InterpretResult.ok;
+                    }
+
+                    self.stackTop = frame.slot;
+                    self.push(result);
+                    frame = &self.frames[self.frameCount - 1];
+                },
                 .OpConstant => {
                     try self.run_constant();
                 },
@@ -229,11 +284,11 @@ pub const VM = struct {
                 },
                 .OpGetLocal => {
                     const slot = self.readByte();
-                    self.push(frame.slots[slot]);
+                    self.push(frame.slots[frame.slot + slot]);
                 },
                 .OpSetLocal => {
                     const slot = self.readByte();
-                    frame.slots[slot] = self.peek(0);
+                    frame.slots[frame.slot + slot] = self.peek(0);
                 },
                 .OpGetGlobal => {
                     const name = self.read_constant();

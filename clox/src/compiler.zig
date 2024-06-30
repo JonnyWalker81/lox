@@ -698,6 +698,20 @@ pub const Compiler = struct {
         try self.emitByte(@intFromEnum(chunk.OpCode.OpPrint));
     }
 
+    fn returnStatement(self: *Self) !void {
+        if (self.funcType == .script) {
+            self.err("Cannot return from top-level code.");
+        }
+
+        if (try self.match(.semicolon)) {
+            try self.emitReturn();
+        } else {
+            try self.expression();
+            _ = try self.consume(@intFromEnum(scanner.TokenType.semicolon), "Expect ';' after return value.");
+            try self.emitByte(@intFromEnum(chunk.OpCode.OpReturn));
+        }
+    }
+
     fn whileStatement(self: *Self) !void {
         const loopStart: u16 = @intCast(self.currentChunk().count);
 
@@ -753,6 +767,8 @@ pub const Compiler = struct {
             try self.forStatement();
         } else if (try self.match(.@"if")) {
             try self.ifStatement();
+        } else if (try self.match(.@"return")) {
+            try self.returnStatement();
         } else if (try self.match(.@"while")) {
             try self.whileStatement();
         } else if (try self.match(.left_brace)) {
@@ -765,6 +781,7 @@ pub const Compiler = struct {
     }
 
     fn emitReturn(self: *Self) !void {
+        try self.emitByte(@intFromEnum(chunk.OpCode.OpNil));
         try self.emitByte(@intFromEnum(chunk.OpCode.OpReturn));
     }
 

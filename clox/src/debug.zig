@@ -170,5 +170,11 @@ pub fn printValue(val: value.Value) void {
         .function => |f| {
             std.debug.print("<fn {s}>", .{f.name});
         },
+        .native => |_| {
+            std.debug.print("<native>", .{});
+        },
+        .closure => |_| {
+            std.debug.print("<closure >", .{});
+        },
     }
 }
