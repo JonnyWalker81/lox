@@ -46,6 +46,15 @@ pub fn disassembleInstruction(c: *chunk.Chunk, offset: usize) usize {
             .OpCall => {
                 return byteInstruction("OP_CALL", c, offset);
             },
+            .OpClosure => {
+                var o = offset + 1;
+                const constant: u8 = code[o];
+                o += 1;
+                std.debug.print("{s:16} {d:4} ", .{ "OP_CLOSURE", constant });
+                printValue(c.constants.items[constant]);
+                std.debug.print("\n", .{});
+                return o;
+            },
             .OpReturn => {
                 return simpleInstruction("OP_RETURN", offset);
             },

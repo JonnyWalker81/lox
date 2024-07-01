@@ -7,6 +7,7 @@ pub const Function = struct {
 
     allocator: std.mem.Allocator,
     arity: u8 = 0,
+    upvalueCount: u8 = 0,
     chnk: *chunk.Chunk,
     name: []const u8 = "",
 

@@ -29,7 +29,7 @@ const FrameMax = 64;
 const StackSize = FrameMax * 256;
 
 pub const CallFrame = struct {
-    function: value.Value,
+    closure: value.Value,
     ip: usize = 0,
     // slots: [*]value.Value = undefined,
     slot: usize,
@@ -94,12 +94,12 @@ pub const VM = struct {
         while (i >= 0) : (i -= 1) {
             const frame = &self.frames[@intCast(i)];
             const instruction = frame.ip - 1;
-            const line = frame.function.functionValue().chnk.lines.?[instruction];
+            const line = frame.closure.closure.function.chnk.lines.?[instruction];
             std.debug.print("[line {}] in ", .{line});
-            if (frame.function.functionValue().name.len == 0) {
+            if (frame.closure.closure.function.name.len == 0) {
                 std.debug.print("script\n", .{});
             } else {
-                std.debug.print("{s}()\n", .{frame.function.functionValue().name});
+                std.debug.print("{s}()\n", .{frame.closure.closure.function.name});
             }
         }
 
@@ -137,13 +137,13 @@ pub const VM = struct {
 
     fn callValue(self: *Self, callee: value.Value, argCount: u8) bool {
         switch (callee) {
-            .function => |f| {
-                // if (f.arity != argCount) {
-                //     self.runtimeError("Expected {d} arguments but got {d}", .{ f.arity, argCount });
-                //     return false;
-                // }
-                return self.call(f, argCount);
-            },
+            // .function => |f| {
+            //     // if (f.arity != argCount) {
+            //     //     self.runtimeError("Expected {d} arguments but got {d}", .{ f.arity, argCount });
+            //     //     return false;
+            //     // }
+            //     return self.call(f, argCount);
+            // },
             .native => |n| {
                 const native = n.function;
                 // if (result.isError()) {
@@ -155,6 +155,10 @@ pub const VM = struct {
                 self.push(result);
                 return true;
             },
+            .closure => {
+                const closure = callee.closure;
+                return self.call(closure, argCount);
+            },
             else => {
                 self.runtimeError("Can only call functions and classes", .{});
                 return false;
@@ -162,9 +166,9 @@ pub const VM = struct {
         }
     }
 
-    fn call(self: *Self, f: value.Function, argCount: u8) bool {
-        if (f.arity != argCount) {
-            self.runtimeError("Expected {d} arguments but got {d}.\n", .{ f.arity, argCount });
+    fn call(self: *Self, c: value.Closure, argCount: u8) bool {
+        if (c.function.arity != argCount) {
+            self.runtimeError("Expected {d} arguments but got {d}.\n", .{ c.function.arity, argCount });
             return false;
         }
 
@@ -175,7 +179,7 @@ pub const VM = struct {
 
         const frame = &self.frames[self.frameCount];
         frame.* = .{
-            .function = .{ .function = f },
+            .closure = .{ .closure = value.Closure.init(self.arena.allocator(), c.function) },
             .ip = 0,
             .slot = self.stackTop - argCount - 1,
             .slots = &self.stack,
@@ -186,7 +190,7 @@ pub const VM = struct {
 
     fn readByte(self: *Self) u8 {
         const frame = &self.frames[self.frameCount - 1];
-        const b = frame.function.functionValue().chnk.code.?[frame.ip];
+        const b = frame.closure.closure.function.chnk.code.?[frame.ip];
         frame.ip += 1;
         return b;
     }
@@ -194,8 +198,8 @@ pub const VM = struct {
     fn readShort(self: *Self) u16 {
         const frame = &self.frames[self.frameCount - 1];
         frame.ip += 2;
-        const b2: u16 = frame.function.functionValue().chnk.code.?[frame.ip - 2];
-        const b1: u16 = frame.function.functionValue().chnk.code.?[frame.ip - 1];
+        const b2: u16 = frame.closure.closure.function.chnk.code.?[frame.ip - 2];
+        const b1: u16 = frame.closure.closure.function.chnk.code.?[frame.ip - 1];
         return b2 << 8 | b1;
     }
 
@@ -204,7 +208,11 @@ pub const VM = struct {
 
         self.push(c);
 
-        _ = self.call(c.functionValue(), 0);
+        const closure = value.Closure.init(self.arena.allocator(), @constCast(&c.functionValue()));
+        _ = self.pop();
+        self.push(.{ .closure = closure });
+
+        _ = self.call(closure, 0);
         // frame.function = c.functionValue();
         // frame.ip = 0;
         // frame.slots = &self.stack;
@@ -217,7 +225,7 @@ pub const VM = struct {
         while (true) {
             if (build_options.debug_trace_execution) {
                 // std.debug.print("chnk: {any} ip: {d} ", .{ frame, frame.ip });
-                _ = debug.disassembleInstruction(frame.function.functionValue().chnk, frame.ip);
+                _ = debug.disassembleInstruction(frame.closure.closure.function.chnk, frame.ip);
 
                 std.debug.print("          ", .{});
                 for (0..self.stackTop) |i| {
@@ -254,6 +262,15 @@ pub const VM = struct {
                         return InterpreterError.runtime_error;
                     }
                     frame = &self.frames[self.frameCount - 1];
+                },
+                .OpClosure => {
+                    const function = self.read_constant();
+                    const closure = .{ .closure = value.Closure.init(self.arena.allocator(), @constCast(&function.functionValue())) };
+                    self.push(closure);
+                    // for (0..closure.function.arity) |i| {
+                    //     const val = self.peek(closure.function.arity - i);
+                    //     self.stack[self.stackTop - i - 1] = val;
+                    // }
                 },
                 .OpReturn => {
                     const result = self.pop();
@@ -434,7 +451,7 @@ pub const VM = struct {
     fn run_constant(self: *Self) !void {
         const frame = &self.frames[self.frameCount - 1];
         const b = self.readByte();
-        const constant = frame.function.functionValue().chnk.constants.items[b];
+        const constant = frame.closure.closure.function.chnk.constants.items[b];
 
         self.push(constant);
         // debug.printValue(constant);
@@ -445,6 +462,6 @@ pub const VM = struct {
     fn read_constant(self: *Self) value.Value {
         const frame = &self.frames[self.frameCount - 1];
         const b = self.readByte();
-        return frame.function.functionValue().chnk.constants.items[b];
+        return frame.closure.closure.function.chnk.constants.items[b];
     }
 };

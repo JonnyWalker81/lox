@@ -97,6 +97,12 @@ pub const Local = struct {
 };
 
 const LocalsCount = std.math.maxInt(u8) + 1;
+const UpvaluesCount = std.math.maxInt(u8) + 1;
+
+pub const Upvalue = struct {
+    index: u8,
+    isLocal: bool,
+};
 
 const FunctionType = enum {
     function,
@@ -114,17 +120,21 @@ pub const Compiler = struct {
     funcType: FunctionType,
     locals: [LocalsCount]Local = undefined,
     localCount: usize = 0,
+    upvalues: [UpvaluesCount]Upvalue = undefined,
     scopeDepth: i32 = 0,
     enclosing: ?*Compiler = null,
     // v: *vm.VM = undefined,
 
     pub fn init(allocator: std.mem.Allocator) Compiler {
+        var u: [UpvaluesCount]Upvalue = undefined;
+        @memset(&u, undefined);
         const parser = Parser.init(allocator);
         var c = Compiler{
             .arena = std.heap.ArenaAllocator.init(allocator),
             .parser = parser,
             .funcType = FunctionType.script,
             .function = .{ .function = value.Function.init(allocator) },
+            .upvalues = u,
         };
 
         // std.debug.print("Compiler init: {any}\n", .{c.function.functionValue()});
@@ -362,6 +372,10 @@ pub const Compiler = struct {
         if (constant != -1) {
             getOp = chunk.OpCode.OpGetLocal;
             setOp = chunk.OpCode.OpSetLocal;
+        } else if (try self.resolveUpvalue(name) != -1) {
+            constant = try self.resolveUpvalue(name);
+            getOp = chunk.OpCode.OpGetUpvalue;
+            setOp = chunk.OpCode.OpSetUpvalue;
         } else {
             constant = try self.identifierConstant(name);
             getOp = chunk.OpCode.OpGetGlobal;
@@ -482,6 +496,50 @@ pub const Compiler = struct {
         return -1;
     }
 
+    fn addUpvalue(self: *Self, index: i32, isLocal: bool) !i32 {
+        const upvalueCount = self.function.functionValue().upvalueCount;
+        // var upvalue = self.function.functionValue().upvalues;
+        for (0..upvalueCount) |i| {
+            const upvalue = self.upvalues[i];
+            if (upvalue.index == index and upvalue.isLocal == isLocal) {
+                return i;
+            }
+        }
+
+        if (upvalueCount == std.math.maxInt(u8) + 1) {
+            self.err("Too many closure variables in function.");
+            return 0;
+        }
+
+        // upvalue = value.Upvalue.init(self.arena.allocator());
+        self.upvalues[upvalueCount].index = index;
+        self.upvalues[upvalueCount].isLocal = isLocal;
+        // upvalue.next = self.function.functionValue().upvalues;
+        // self.function.functionValue().upvalues = upvalue;
+
+        self.function.functionValue().upvalueCount += 1;
+        return self.function.functionValue().upvalueCount - 1;
+    }
+
+    fn resolveUpvalue(self: *Self, name: scanner.Token) !i32 {
+        if (self.enclosing == null) {
+            return -1;
+        }
+
+        const local = try self.enclosing.?.resolveLocal(name);
+        if (local != -1) {
+            // self.enclosing.locals[@intCast(local)].isCaptured = true;
+            return try self.addUpvalue(@intCast(local), true);
+        }
+
+        const upvalue = try self.enclosing.?.resolveUpvalue(name);
+        if (upvalue != -1) {
+            return try self.addUpvalue(self.enclosing, @intCast(upvalue), false);
+        }
+
+        return -1;
+    }
+
     fn parseVariable(self: *Self, errorMessage: []const u8) !u8 {
         _ = try self.consume(@intFromEnum(scanner.TokenType.identifier), errorMessage);
 
@@ -587,7 +645,7 @@ pub const Compiler = struct {
         try compiler.block();
 
         const f = try compiler.endCompiler();
-        try self.emitBytes(@intFromEnum(chunk.OpCode.OpConstant), try self.makeConstant(f));
+        try self.emitBytes(@intFromEnum(chunk.OpCode.OpClosure), try self.makeConstant(f));
     }
 
     fn funDeclaration(self: *Self) !void {
