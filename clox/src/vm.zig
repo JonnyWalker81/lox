@@ -166,6 +166,11 @@ pub const VM = struct {
         }
     }
 
+    fn captureValue(self: *Self, local: *value.Value) *value.Upvalue {
+        const upvalue = value.Upvalue.init(self.arena.allocator(), local);
+        return upvalue;
+    }
+
     fn call(self: *Self, c: value.Closure, argCount: u8) bool {
         if (c.function.arity != argCount) {
             self.runtimeError("Expected {d} arguments but got {d}.\n", .{ c.function.arity, argCount });
@@ -190,7 +195,11 @@ pub const VM = struct {
 
     fn readByte(self: *Self) u8 {
         const frame = &self.frames[self.frameCount - 1];
+        std.debug.print("ip: {d} ", .{frame.ip});
+        // std.debug.print("function: {any} ", .{frame.closure.closure.function});
         const b = frame.closure.closure.function.chnk.code.?[frame.ip];
+        std.debug.print("byte: {d}", .{b});
+        std.debug.print("{any}\n", .{frame.closure.closure.function.chnk.code.?});
         frame.ip += 1;
         return b;
     }
@@ -204,11 +213,11 @@ pub const VM = struct {
     }
 
     pub fn interpret(self: *Self, source: []const u8) !InterpretResult {
-        const c = try self.comp.compile(source);
+        var c = try self.comp.compile(source);
 
         self.push(c);
 
-        const closure = value.Closure.init(self.arena.allocator(), @constCast(&c.functionValue()));
+        const closure = value.Closure.init(self.arena.allocator(), &c.function);
         _ = self.pop();
         self.push(.{ .closure = closure });
 
@@ -258,15 +267,25 @@ pub const VM = struct {
                 .OpCall => {
                     const argCount = self.readByte();
                     const callee = self.peek(argCount);
+                    std.debug.print("callee: {any}\n", .{callee});
                     if (!self.callValue(callee, argCount)) {
                         return InterpreterError.runtime_error;
                     }
                     frame = &self.frames[self.frameCount - 1];
                 },
                 .OpClosure => {
-                    const function = self.read_constant();
-                    const closure = .{ .closure = value.Closure.init(self.arena.allocator(), @constCast(&function.functionValue())) };
+                    var function = self.read_constant();
+                    const closure = .{ .closure = value.Closure.init(self.arena.allocator(), &function.function) };
                     self.push(closure);
+                    for (0..closure.closure.upvalues.len) |i| {
+                        const isLocal = self.readByte();
+                        const index = self.readByte();
+                        if (isLocal == 1) {
+                            closure.closure.upvalues[i] = self.captureValue(&frame.slots[frame.slot + index]);
+                        } else {
+                            closure.closure.upvalues[i] = frame.closure.closure.upvalues[index];
+                        }
+                    }
                     // for (0..closure.function.arity) |i| {
                     //     const val = self.peek(closure.function.arity - i);
                     //     self.stack[self.stackTop - i - 1] = val;
@@ -335,6 +354,14 @@ pub const VM = struct {
                         self.runtimeError("Undefined variable '{s}'", .{name.stringValue()});
                         return InterpreterError.runtime_error;
                     }
+                },
+                .OpGetUpvalue => {
+                    const slot = self.readByte();
+                    self.push(frame.closure.closure.upvalues[slot].location.*);
+                },
+                .OpSetUpvalue => {
+                    const slot = self.readByte();
+                    frame.closure.closure.upvalues[slot].location.* = self.peek(0);
                 },
                 .OpEqual => {
                     const b = self.pop();
@@ -419,6 +446,7 @@ pub const VM = struct {
 
     fn run_print(self: *Self) !void {
         const val = self.pop();
+        std.debug.print("print: ", .{});
         debug.printValue(val);
         std.debug.print("\n", .{});
     }

@@ -53,6 +53,15 @@ pub fn disassembleInstruction(c: *chunk.Chunk, offset: usize) usize {
                 std.debug.print("{s:16} {d:4} ", .{ "OP_CLOSURE", constant });
                 printValue(c.constants.items[constant]);
                 std.debug.print("\n", .{});
+
+                const ff = c.constants.items[constant];
+                for (0..ff.function.upvalueCount) |_| {
+                    const isLocal: u8 = code[o];
+                    o += 1;
+                    const index: u8 = code[o];
+                    o += 1;
+                    std.debug.print("{d:4}      |                     {s} {d}\n", .{ offset - 2, if (isLocal == 1) "local" else "upvalue", index });
+                }
                 return o;
             },
             .OpReturn => {
@@ -87,6 +96,12 @@ pub fn disassembleInstruction(c: *chunk.Chunk, offset: usize) usize {
             },
             .OpSetGlobal => {
                 return constantInstruction("OP_SET_GLOBAL", c, offset);
+            },
+            .OpGetUpvalue => {
+                return byteInstruction("OP_GET_UPVALUE", c, offset);
+            },
+            .OpSetUpvalue => {
+                return byteInstruction("OP_SET_UPVALUE", c, offset);
             },
             .OpEqual => {
                 return simpleInstruction("OP_EQUAL", offset);
@@ -184,6 +199,9 @@ pub fn printValue(val: value.Value) void {
         },
         .closure => |_| {
             std.debug.print("<closure >", .{});
+        },
+        .upvalue => |_| {
+            std.debug.print("<upvalue>", .{});
         },
     }
 }

@@ -22,7 +22,9 @@
             inputs.zig.overlays.default
             (final: prev: {
               # ... things you need to patch ...
-              zig = inputs.zig-overlay;
+              # zig = inputs.zig-overlay;
+              zigpkgs = inputs.zig.packages.${prev.system};
+              zig = inputs.zig.packages.${prev.system}."0.13.0";
             })
           ];
         in {

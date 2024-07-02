@@ -25,6 +25,10 @@ pub const Function = struct {
     pub fn incrementArity(self: *Self) void {
         self.arity += 1;
     }
+
+    pub fn incrementUpvalueCount(self: *Self) void {
+        self.upvalueCount += 1;
+    }
 };
 
 pub const NativeFn = *const fn (u8, []Value) Value;
@@ -44,12 +48,35 @@ pub const Native = struct {
 pub const Closure = struct {
     allocator: std.mem.Allocator,
     function: *Function,
+    upvalues: []*Upvalue,
 
     pub fn init(allocator: std.mem.Allocator, function: *Function) Closure {
+        const upvalues = allocator.alloc(*Upvalue, function.upvalueCount) catch unreachable;
         return .{
             .allocator = allocator,
             .function = function,
+            .upvalues = upvalues,
         };
+    }
+};
+
+pub const Upvalue = struct {
+    const Self = @This();
+
+    allocator: std.mem.Allocator,
+    // isLocal: bool,
+    location: *Value,
+    // next: ?Self,
+    // closed: Value,
+
+    pub fn init(allocator: std.mem.Allocator, location: *Value) *Self {
+        const upvalue = allocator.create(Self) catch unreachable;
+        upvalue.* = .{
+            .allocator = allocator,
+            .location = location,
+        };
+
+        return upvalue;
     }
 };
 
@@ -63,6 +90,7 @@ pub const Value = union(enum) {
     function: Function,
     native: Native,
     closure: Closure,
+    upvalue: Upvalue,
 
     pub fn isNil(self: Value) bool {
         return self == .nil;
@@ -217,12 +245,15 @@ pub const Value = union(enum) {
                 try writer.print("<native fn>", .{});
             },
             .closure => |c| {
-                printFunctionName(writer, c.function);
+                try printFunctionName(writer, c.function);
                 // if (c.function.name.len > 0) {
                 //     try writer.print("<fn {s}>", .{c.function.name});
                 // } else {
                 //     try writer.print("<script>", .{});
                 // }
+            },
+            .upvalue => |_| {
+                try writer.print("<upvalue>", .{});
             },
         }
     }
