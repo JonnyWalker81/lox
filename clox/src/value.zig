@@ -50,13 +50,18 @@ pub const Closure = struct {
     function: *Function,
     upvalues: []*Upvalue,
 
-    pub fn init(allocator: std.mem.Allocator, function: *Function) Closure {
+    pub fn init(allocator: std.mem.Allocator, function: *Function) *Closure {
         const upvalues = allocator.alloc(*Upvalue, function.upvalueCount) catch unreachable;
-        return .{
+        std.debug.print("upvalues: {d}\n", .{function.upvalueCount});
+        @memset(upvalues, undefined);
+        const closure = allocator.create(Closure) catch unreachable;
+        closure.* = .{
             .allocator = allocator,
             .function = function,
             .upvalues = upvalues,
         };
+
+        return closure;
     }
 };
 
@@ -89,7 +94,7 @@ pub const Value = union(enum) {
     string: []const u8,
     function: Function,
     native: Native,
-    closure: Closure,
+    closure: *Closure,
     upvalue: Upvalue,
 
     pub fn isNil(self: Value) bool {

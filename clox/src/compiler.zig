@@ -272,7 +272,7 @@ pub const Compiler = struct {
         const f = self.function;
 
         if (build_options.debug_print_code and !self.parser.hadError) {
-            debug.disassembleChunk(self.currentChunk(), if (f.functionValue().name.len > 0) "code" else "<script>");
+            debug.disassembleChunk(self.currentChunk(), if (f.functionValue().name.len > 0) f.functionValue().name else "<script>");
         }
 
         // std.debug.print("End compiler: {any}\n", .{func.functionValue()});
@@ -369,29 +369,37 @@ pub const Compiler = struct {
         var constant = try self.resolveLocal(name);
         var getOp: chunk.OpCode = undefined;
         var setOp: chunk.OpCode = undefined;
-        const index = try self.resolveUpvalue(name);
-        if (index != -1) {
-            std.debug.print("Constant index (namedVariable): {d}\n", .{constant});
-            std.debug.print("Upvalue index (namedVariable): {d}\n", .{index});
-        }
 
         if (constant != -1) {
             getOp = chunk.OpCode.OpGetLocal;
             setOp = chunk.OpCode.OpSetLocal;
-        } else if (index != -1) {
-            constant = @intCast(index);
-            getOp = chunk.OpCode.OpGetUpvalue;
-            setOp = chunk.OpCode.OpSetUpvalue;
         } else {
-            constant = try self.identifierConstant(name);
-            getOp = chunk.OpCode.OpGetGlobal;
-            setOp = chunk.OpCode.OpSetGlobal;
+            constant = try self.resolveUpvalue(name);
+            if (constant != -1) {
+                std.debug.print("Constant index (namedVariable, upvalue): {d}\n", .{constant});
+                getOp = chunk.OpCode.OpGetUpvalue;
+                setOp = chunk.OpCode.OpSetUpvalue;
+            } else {
+                constant = try self.identifierConstant(name);
+                std.debug.print("Constant index (namedVariable, identifierConstant): {d}\n", .{constant});
+                getOp = chunk.OpCode.OpGetGlobal;
+                setOp = chunk.OpCode.OpSetGlobal;
+            }
         }
 
+        // const s = self.scnr.source[name.start .. name.start + name.length];
         if (canAssign and try self.match(.equal)) {
             try self.expression();
+
             try self.emitBytes(@intFromEnum(setOp), @intCast(constant));
         } else {
+            // std.debug.print("Op to Constant Set: (namedVariable): {s} == {any} -> {d}\n", .{ s, setOp, constant });
+            // if (std.mem.eql(u8, self.scnr.source[name.start .. name.start + name.length], "outer")) {
+            //     std.debug.print("Outer variable: {d}\n", .{constant});
+            //     constant = 0;
+            // }
+            // std.debug.print("Op to Constant: (namedVariable): {any} -> {d}\n", .{ getOp, constant });
+
             try self.emitBytes(@intFromEnum(getOp), @intCast(constant));
         }
     }
@@ -441,6 +449,7 @@ pub const Compiler = struct {
 
     fn identifierConstant(self: *Self, name: scanner.Token) !u8 {
         const strVal = try std.fmt.allocPrint(self.arena.allocator(), "{s}", .{self.scnr.source[name.start .. name.start + name.length]});
+        std.debug.print("Identifier constant: {s}\n", .{strVal});
         const constant = try self.makeConstant(.{ .string = strVal });
         return constant;
     }
@@ -534,6 +543,7 @@ pub const Compiler = struct {
         // self.function.functionValue().upvalues = upvalue;
 
         self.function.function.incrementUpvalueCount();
+        std.debug.print("Upvalue count (addUpvalue): {d}\n", .{self.function.functionValue().upvalueCount});
         return self.function.functionValue().upvalueCount - 1;
     }
 
@@ -582,6 +592,8 @@ pub const Compiler = struct {
             try self.markInitialized();
             return;
         }
+
+        std.debug.print("Op to Defining Global: {d}\n", .{global});
         try self.emitBytes(@intFromEnum(chunk.OpCode.OpDefineGlobal), global);
     }
 
@@ -663,6 +675,7 @@ pub const Compiler = struct {
         try compiler.block();
 
         const f = try compiler.endCompiler();
+        @memcpy(&self.upvalues, &compiler.upvalues);
         try self.emitBytes(@intFromEnum(chunk.OpCode.OpClosure), try self.makeConstant(f));
 
         std.debug.print("Upvalues: {any}\n", .{compiler.upvalues[0]});

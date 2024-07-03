@@ -197,8 +197,8 @@ pub fn printValue(val: value.Value) void {
         .native => |_| {
             std.debug.print("<native>", .{});
         },
-        .closure => |_| {
-            std.debug.print("<closure >", .{});
+        .closure => |c| {
+            std.debug.print("<closure {s}>", .{c.function.name});
         },
         .upvalue => |_| {
             std.debug.print("<upvalue>", .{});

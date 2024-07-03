@@ -1,5 +1,5 @@
 fun outer() {
-  var x = "outside";
+    var x = "test inner";
   fun inner() {
     print x;
   }

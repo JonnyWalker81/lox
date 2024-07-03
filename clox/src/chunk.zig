@@ -47,10 +47,10 @@ pub const Chunk = struct {
     lines: ?[]usize = null,
 
     pub fn init(allocator: std.mem.Allocator) *Chunk {
-        const arena = std.heap.ArenaAllocator.init(allocator);
-        const chunk = allocator.create(Chunk) catch unreachable;
+        var arena = std.heap.ArenaAllocator.init(allocator);
+        const chunk = arena.allocator().create(Chunk) catch unreachable;
         // const constants = value.ValueArray.init(allocator);
-        const constants = std.ArrayList(value.Value).init(allocator);
+        const constants = std.ArrayList(value.Value).init(arena.allocator());
         chunk.* = .{
             .arena = arena,
             .constants = constants,
