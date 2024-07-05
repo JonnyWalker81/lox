@@ -47,12 +47,11 @@ pub const Native = struct {
 
 pub const Closure = struct {
     allocator: std.mem.Allocator,
-    function: *Function,
+    function: Function,
     upvalues: []*Upvalue,
 
-    pub fn init(allocator: std.mem.Allocator, function: *Function) *Closure {
+    pub fn init(allocator: std.mem.Allocator, function: Function) *Closure {
         const upvalues = allocator.alloc(*Upvalue, function.upvalueCount) catch unreachable;
-        std.debug.print("upvalues: {d}\n", .{function.upvalueCount});
         @memset(upvalues, undefined);
         const closure = allocator.create(Closure) catch unreachable;
         closure.* = .{
@@ -264,7 +263,7 @@ pub const Value = union(enum) {
     }
 };
 
-fn printFunctionName(writer: anytype, function: *Function) !void {
+fn printFunctionName(writer: anytype, function: Function) !void {
     if (function.name.len > 0) {
         try writer.print("<fn {s}>", .{function.name});
     } else {

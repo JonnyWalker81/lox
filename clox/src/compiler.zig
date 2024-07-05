@@ -376,12 +376,10 @@ pub const Compiler = struct {
         } else {
             constant = try self.resolveUpvalue(name);
             if (constant != -1) {
-                std.debug.print("Constant index (namedVariable, upvalue): {d}\n", .{constant});
                 getOp = chunk.OpCode.OpGetUpvalue;
                 setOp = chunk.OpCode.OpSetUpvalue;
             } else {
                 constant = try self.identifierConstant(name);
-                std.debug.print("Constant index (namedVariable, identifierConstant): {d}\n", .{constant});
                 getOp = chunk.OpCode.OpGetGlobal;
                 setOp = chunk.OpCode.OpSetGlobal;
             }
@@ -449,7 +447,6 @@ pub const Compiler = struct {
 
     fn identifierConstant(self: *Self, name: scanner.Token) !u8 {
         const strVal = try std.fmt.allocPrint(self.arena.allocator(), "{s}", .{self.scnr.source[name.start .. name.start + name.length]});
-        std.debug.print("Identifier constant: {s}\n", .{strVal});
         const constant = try self.makeConstant(.{ .string = strVal });
         return constant;
     }
@@ -490,16 +487,13 @@ pub const Compiler = struct {
     fn identifiersEqual(self: *Self, a: scanner.Token, b: scanner.Token) bool {
         const aStr = self.scnr.source[a.start .. a.start + a.length];
         const bStr = self.scnr.source[b.start .. b.start + b.length];
-        std.debug.print("Comparing: {s} {s}\n", .{ aStr, bStr });
         return a.length == b.length and
             std.mem.eql(u8, aStr, bStr);
     }
 
     fn resolveLocal(self: *Self, name: scanner.Token) !i32 {
-        std.debug.print("Resolving local...{d}\n", .{self.localCount});
         var i: i32 = @intCast(self.localCount);
         while (i >= 0) : (i -= 1) {
-            std.debug.print("Resolving local: {d}\n", .{i});
             const local = &self.locals[@intCast(i)];
             // if (local.depth != -1 and local.depth < self.scopeDepth) {
             //     return -1;
@@ -509,12 +503,10 @@ pub const Compiler = struct {
                 if (local.depth == -1) {
                     self.err("Cannot read local variable in its own initializer.");
                 }
-                std.debug.print("end resolving Local index: {d}\n", .{i});
                 return @intCast(i);
             }
         }
 
-        std.debug.print("end Resolving local (-1)...\n", .{});
         return -1;
     }
 
@@ -524,7 +516,6 @@ pub const Compiler = struct {
         for (0..upvalueCount) |i| {
             const upvalue = &self.upvalues[i];
             if (upvalue.index == index and upvalue.isLocal == isLocal) {
-                std.debug.print("Upvalue index (return): {d}\n", .{index});
                 return @intCast(i);
             }
         }
@@ -535,15 +526,12 @@ pub const Compiler = struct {
         }
 
         // upvalue = value.Upvalue.init(self.arena.allocator());
-        std.debug.print("Upvalue index: {d} -> {d}\n", .{ upvalueCount, index });
         self.upvalues[upvalueCount].index = @intCast(index);
         self.upvalues[upvalueCount].isLocal = isLocal;
-        std.debug.print("Upvalue index (return): {any}\n", .{self.upvalues[0]});
         // upvalue.next = self.function.functionValue().upvalues;
         // self.function.functionValue().upvalues = upvalue;
 
         self.function.function.incrementUpvalueCount();
-        std.debug.print("Upvalue count (addUpvalue): {d}\n", .{self.function.functionValue().upvalueCount});
         return self.function.functionValue().upvalueCount - 1;
     }
 
@@ -555,13 +543,11 @@ pub const Compiler = struct {
         const local = try self.enclosing.?.resolveLocal(name);
         if (local != -1) {
             // self.enclosing.locals[@intCast(local)].isCaptured = true;
-            std.debug.print("Upvalue index (local): {d}\n", .{local});
             return try self.addUpvalue(@intCast(local), true);
         }
 
         const upvalue = try self.enclosing.?.resolveUpvalue(name);
         if (upvalue != -1) {
-            std.debug.print("Upvalue index (upvalue) (enclosing): {d}\n", .{upvalue});
             return try self.addUpvalue(@intCast(upvalue), false);
         }
 
@@ -593,7 +579,6 @@ pub const Compiler = struct {
             return;
         }
 
-        std.debug.print("Op to Defining Global: {d}\n", .{global});
         try self.emitBytes(@intFromEnum(chunk.OpCode.OpDefineGlobal), global);
     }
 
@@ -678,10 +663,8 @@ pub const Compiler = struct {
         @memcpy(&self.upvalues, &compiler.upvalues);
         try self.emitBytes(@intFromEnum(chunk.OpCode.OpClosure), try self.makeConstant(f));
 
-        std.debug.print("Upvalues: {any}\n", .{compiler.upvalues[0]});
         for (0..f.functionValue().upvalueCount) |i| {
             const isLocal: u8 = if (compiler.upvalues[i].isLocal) 1 else 0;
-            std.debug.print("Upvalue is local: {d}\n", .{isLocal});
             try self.emitByte(isLocal);
             try self.emitByte(@intCast(compiler.upvalues[i].index));
         }
@@ -903,10 +886,10 @@ pub const Compiler = struct {
             self.err("Too much code to jump over.");
         }
 
-        if (self.currentChunk().code) |code| {
-            code[offset] = @intCast((jump >> 8) & 0xff);
-            code[offset + 1] = @intCast(jump & 0xff);
-        }
+        // if (self.currentChunk().code) |code| {
+        self.currentChunk().code.items[offset] = @intCast((jump >> 8) & 0xff);
+        self.currentChunk().code.items[offset + 1] = @intCast(jump & 0xff);
+        // }
     }
 
     fn currentChunk(self: *Self) *chunk.Chunk {

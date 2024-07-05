@@ -41,19 +41,21 @@ pub const Chunk = struct {
     arena: std.heap.ArenaAllocator,
     count: usize = 0,
     capacity: usize = 0,
-    code: ?[]u8 = null,
+    // code: ?[]u8 = null,
+    code: std.ArrayList(u8),
     // constants: *value.ValueArray,
     constants: std.ArrayList(value.Value),
     lines: ?[]usize = null,
 
     pub fn init(allocator: std.mem.Allocator) *Chunk {
-        var arena = std.heap.ArenaAllocator.init(allocator);
-        const chunk = arena.allocator().create(Chunk) catch unreachable;
+        const arena = std.heap.ArenaAllocator.init(allocator);
+        const chunk = allocator.create(Chunk) catch unreachable;
         // const constants = value.ValueArray.init(allocator);
-        const constants = std.ArrayList(value.Value).init(arena.allocator());
+        const constants = std.ArrayList(value.Value).init(allocator);
         chunk.* = .{
             .arena = arena,
             .constants = constants,
+            .code = std.ArrayList(u8).init(allocator),
         };
 
         return chunk;
@@ -64,23 +66,26 @@ pub const Chunk = struct {
     }
 
     pub fn writeChunk(self: *Self, byte: u8, line: usize) !void {
-        if (self.capacity < self.count + 1) {
-            const oldCapacity = self.capacity;
-            self.capacity = memory.growCapacity(oldCapacity);
-            const newArray = try memory.growArray(u8, self.arena.allocator(), self.code, oldCapacity, self.capacity);
-            self.code = newArray;
+        // if (self.capacity < self.count + 1) {
+        //     const oldCapacity = self.capacity;
+        //     self.capacity = memory.growCapacity(oldCapacity);
+        //     const newArray = try memory.growArray(u8, self.arena.allocator(), self.code, oldCapacity, self.capacity);
+        //     self.code = newArray;
 
-            const newLinesArray = try memory.growArray(usize, self.arena.allocator(), self.lines, oldCapacity, self.capacity);
-            self.lines = newLinesArray;
-        }
+        //     const newLinesArray = try memory.growArray(usize, self.arena.allocator(), self.lines, oldCapacity, self.capacity);
+        //     self.lines = newLinesArray;
+        // }
 
-        if (self.code) |code| {
-            if (self.lines) |lines| {
-                lines[self.count] = line;
-                code[self.count] = byte;
-                self.count += 1;
-            }
+        // if (self.code) |code| {
+        if (self.lines) |lines| {
+            lines[self.count] = line;
+            //         code[self.count] = byte;
+            //         self.count += 1;
         }
+        // }
+        //
+        try self.code.append(byte);
+        self.count += 1;
     }
 
     pub fn addConstant(self: *Self, val: value.Value) !usize {

@@ -3,6 +3,7 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    # nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.05";
 
     zig.url = "github:mitchellh/zig-overlay";
   };
@@ -16,17 +17,16 @@
         let
           inherit (pkgs) dockerTools stdenv zig zls nodejs valgrind rr lldb;
           inherit (dockerTools) buildImage;
-          name = "jlox";
+          name = "lox";
           version = "0.1.0";
           overlays = [
             inputs.zig.overlays.default
-            (final: prev:
-              {
-                # ... things you need to patch ...
-                # zig = inputs.zig-overlay;
-                # zigpkgs = inputs.zig.packages.${prev.system};
-                # zig = inputs.zig.packages.${prev.system}."0.12.0";
-              })
+            (final: prev: {
+              # ... things you need to patch ...
+              # zig = inputs.zig-overlay;
+              zigpkgs = inputs.zig.packages.${prev.system};
+              zig = inputs.zig.packages.${prev.system}."0.12.0";
+            })
           ];
         in {
           packages = {

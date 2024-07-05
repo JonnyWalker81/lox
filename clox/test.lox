@@ -1,8 +1,11 @@
 fun outer() {
-    var x = "test inner";
+  var x = "outside";
   fun inner() {
     print x;
   }
-  inner();
+
+  return inner;
 }
-outer();
+
+var closure = outer();
+closure();

@@ -29,17 +29,27 @@ const FrameMax = 64;
 const StackSize = FrameMax * 256;
 
 pub const CallFrame = struct {
+    const Self = @This();
     // closure: *const value.Value,
     closure: *value.Closure,
     ip: usize = 0,
     // slots: [*]value.Value = undefined,
     slot: usize,
     slots: *[StackSize]value.Value,
+
+    pub fn dump(self: *Self) void {
+        std.debug.print("frame: {d}\n", .{self.ip});
+        std.debug.print("  closure: {s}\n", .{self.closure.function.name});
+        std.debug.print("  code: {any}\n", .{self.closure.function.chnk.code.items});
+        std.debug.print("\n", .{});
+    }
 };
 
 pub fn clockNative(_: u8, _: []value.Value) value.Value {
     return .{ .number = @floatFromInt(@divFloor(std.time.milliTimestamp(), 1000)) };
 }
+
+var testFrame: CallFrame = undefined;
 
 pub const VM = struct {
     const Self = @This();
@@ -52,23 +62,26 @@ pub const VM = struct {
     comp: compiler.Compiler,
     globals: std.StringHashMap(value.Value),
     frames: [FrameMax]CallFrame,
+    // frames: std.ArrayList(CallFrame),
     frameCount: usize = 0,
     // strings: std.StringHashMap(void),
 
-    pub fn init(allocator: std.mem.Allocator) *Self {
+    pub fn init(allocator: std.mem.Allocator) Self {
         var stack: [StackSize]value.Value = undefined;
         @memset(&stack, undefined);
 
         var frames: [FrameMax]CallFrame = undefined;
         @memset(&frames, undefined);
 
-        const vm = allocator.create(Self) catch unreachable;
-        vm.* = .{
-            .arena = std.heap.ArenaAllocator.init(allocator),
+        const arena = std.heap.ArenaAllocator.init(allocator);
+        // const vm = allocator.create(Self) catch unreachable;
+        var vm: VM = .{
+            .arena = arena,
             .stack = stack,
             .comp = compiler.Compiler.init(allocator),
             .globals = std.StringHashMap(value.Value).init(allocator),
             .frames = frames,
+            // .frames = std.ArrayList(CallFrame).init(allocator),
             // .strings = std.StringHashMap(void).init(allocator),
         };
 
@@ -183,12 +196,16 @@ pub const VM = struct {
             return false;
         }
 
-        std.debug.print("new call frame setup: {d}\n", .{self.frameCount});
         const frame = &self.frames[self.frameCount];
-        std.debug.print("------ call: {s}  --------\n", .{c.function.name});
         // std.debug.print("    code:\n", .{});
         // _ = debug.disassembleInstruction(c.function.chnk, 0);
         // std.debug.print("------ end code: {s}  --------\n", .{c.function.name});
+        // self.frames.append(.{
+        //     .closure = c,
+        //     .ip = 0,
+        //     .slot = self.stackTop - argCount - 1,
+        //     .slots = &self.stack,
+        // }) catch unreachable;
         frame.* = .{
             // .closure = .{ .closure = value.Closure.init(self.arena.allocator(), c.function) },
             .closure = c,
@@ -198,46 +215,31 @@ pub const VM = struct {
         };
 
         self.frameCount += 1;
-        std.debug.print("~~~~~dumping after update frame...\n", .{});
-        self.dumpFrames();
         return true;
     }
 
     fn readByte(self: *Self) u8 {
-        self.dumpFrames();
-        std.debug.print("read_byte frame count: {d}\n", .{self.frameCount});
         var frame = &self.frames[self.frameCount - 1];
-        std.debug.print("frame: {s} ", .{frame.closure.function.name});
-        std.debug.print("ip: {d} ", .{frame.ip});
-        // std.debug.print("function: {any} ", .{frame.closure.closure.function});
-        const b = frame.closure.function.chnk.code.?[frame.ip];
-        std.debug.print("byte: {d}", .{b});
-        std.debug.print("{any}\n", .{frame.closure.function.chnk.code.?});
+        const b = frame.closure.function.chnk.code.items[frame.ip];
 
         frame.ip += 1;
-
-        std.debug.print("end readByte: {any}\n", .{frame.closure.function.chnk.code.?});
-
-        self.dumpFrames();
         return b;
     }
 
     fn readShort(self: *Self) u16 {
         var frame = &self.frames[self.frameCount - 1];
         frame.ip += 2;
-        const b2: u16 = frame.closure.function.chnk.code.?[frame.ip - 2];
-        const b1: u16 = frame.closure.function.chnk.code.?[frame.ip - 1];
+        const b2: u16 = frame.closure.function.chnk.code.items[frame.ip - 2];
+        const b1: u16 = frame.closure.function.chnk.code.items[frame.ip - 1];
         return b2 << 8 | b1;
     }
 
     pub fn interpret(self: *Self, source: []const u8) !InterpretResult {
-        var c = try self.comp.compile(source);
+        const c = try self.comp.compile(source);
 
         self.push(c);
 
-        std.debug.print("------ interpret call: {s}  --------\n", .{c.function.name});
-
-        const closure = value.Closure.init(self.arena.allocator(), &c.function);
+        const closure = value.Closure.init(self.arena.allocator(), c.function);
         _ = self.pop();
         self.push(.{ .closure = closure });
 
@@ -255,7 +257,7 @@ pub const VM = struct {
             const frame = &self.frames[i];
             std.debug.print("frame: {d} \n", .{i});
             std.debug.print("  closure: {s}\n ", .{frame.closure.function.name});
-            std.debug.print("  code: {any} \n", .{frame.closure.function.chnk.code});
+            std.debug.print("  code: {any} \n", .{frame.closure.function.chnk.code.items});
             std.debug.print("\n", .{});
         }
     }
@@ -263,10 +265,7 @@ pub const VM = struct {
         var f = &self.frames[self.frameCount - 1];
         while (true) {
             if (build_options.debug_trace_execution) {
-                self.dumpFrames();
-                std.debug.print("tracing execution...\n", .{});
-                std.debug.print("run...frame: {d}\n", .{self.frameCount});
-                std.debug.print("    frame code: {any}\n", .{f.closure.function.chnk.code});
+                // std.debug.print("tracing execution...\n", .{});
                 // std.debug.print("chnk: {any} ip: {d} ", .{ frame, frame.ip });
                 _ = debug.disassembleInstruction(f.closure.function.chnk, f.ip);
 
@@ -301,37 +300,21 @@ pub const VM = struct {
                 .OpCall => {
                     const argCount = self.readByte();
                     const callee = self.peek(argCount);
-                    std.debug.print("callee: {any}\n", .{callee});
                     if (!self.callValue(callee, argCount)) {
                         return InterpreterError.runtime_error;
                     }
-                    std.debug.print("call frame being updated: {d}\n", .{self.frameCount});
-                    self.dumpFrames();
                     f = &self.frames[self.frameCount - 1];
                 },
                 .OpClosure => {
-                    std.debug.print("    begin frame code: {any}\n", .{f.closure.function.chnk.code});
-                    std.debug.print("    begin frame code: {any}\n", .{f.closure.function.chnk.code});
-                    var function = self.read_constant();
-                    std.debug.print("dump after read_constant begin...\n", .{});
-                    self.dumpFrames();
-                    std.debug.print("dump after read_constant end...\n", .{});
-                    std.debug.print("    after frame code: {any}\n", .{f.closure.function.chnk.code});
-                    const closure = .{ .closure = value.Closure.init(self.arena.allocator(), &function.function) };
-                    std.debug.print("begin closure...{s}\n", .{closure.closure.function.name});
-
+                    const function = self.read_constant();
+                    const closure = .{ .closure = value.Closure.init(self.arena.allocator(), function.function) };
                     self.push(closure);
                     for (0..closure.closure.upvalues.len) |i| {
-                        std.debug.print("    frame code: {any}\n", .{f.closure.function.chnk.code});
                         const isLocal = self.readByte();
-
-                        std.debug.print("    frame code: {any}\n", .{f.closure.function.chnk.code});
                         const index = self.readByte();
                         if (isLocal == 1) {
-                            std.debug.print("upvalue local: {d}\n", .{index});
                             closure.closure.upvalues[i] = self.captureValue(&f.slots[f.slot + index]);
                         } else {
-                            std.debug.print("upvalue upvalue: {d}\n", .{index});
                             // closure.closure.upvalues[i] = frame.closure.upvalues[index];
                             closure.closure.upvalues[i] = f.closure.upvalues[index];
                         }
@@ -340,7 +323,6 @@ pub const VM = struct {
                     //     const val = self.peek(closure.function.arity - i);
                     //     self.stack[self.stackTop - i - 1] = val;
                     // }
-                    std.debug.print("end closure...\n", .{});
                 },
                 .OpReturn => {
                     const result = self.pop();
@@ -352,7 +334,6 @@ pub const VM = struct {
 
                     self.stackTop = f.slot;
                     self.push(result);
-                    std.debug.print("return: {any}\n", .{result});
                     f = &self.frames[self.frameCount - 1];
                 },
                 .OpConstant => {
@@ -380,9 +361,8 @@ pub const VM = struct {
                 },
                 .OpGetGlobal => {
                     const name = self.read_constant();
-                    if (self.globals.contains(name.stringValue())) {
-                        const val = self.globals.get(name.stringValue());
-                        self.push(val.?);
+                    if (self.globals.get(name.stringValue())) |val| {
+                        self.push(val);
                     } else {
                         self.runtimeError("Undefined variable '{s}'", .{name.stringValue()});
                         return InterpreterError.runtime_error;
@@ -498,7 +478,6 @@ pub const VM = struct {
 
     fn run_print(self: *Self) !void {
         const val = self.pop();
-        std.debug.print("print: ", .{});
         debug.printValue(val);
         std.debug.print("\n", .{});
     }
@@ -529,7 +508,7 @@ pub const VM = struct {
     // }
 
     fn run_constant(self: *Self) !void {
-        const frame = self.frames[self.frameCount - 1];
+        const frame = &self.frames[self.frameCount - 1];
         const b = self.readByte();
         const constant = frame.closure.function.chnk.constants.items[b];
 
@@ -540,16 +519,9 @@ pub const VM = struct {
     }
 
     fn read_constant(self: *Self) value.Value {
-        const frame = self.frames[self.frameCount - 1];
-        std.debug.print("end read_constant (before readByte): {any}\n", .{frame.closure.function.chnk.code});
+        const frame = &self.frames[self.frameCount - 1];
         const b = self.readByte();
 
-        std.debug.print("end read_constant: {any}\n", .{frame.closure.function.chnk.code});
-        const c = frame.closure.function.chnk.constants.items[b];
-
-        std.debug.print("end read_constant (before return): {any}\n", .{frame.closure.function.chnk.code});
-
-        self.dumpFrames();
-        return c;
+        return frame.closure.function.chnk.constants.items[b];
     }
 };

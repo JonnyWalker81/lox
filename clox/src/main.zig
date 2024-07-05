@@ -16,11 +16,11 @@ pub fn main() !void {
     defer v.deinit();
 
     if (argLen == 1) {
-        try repl(v);
+        try repl(&v);
         return std.process.exit(64);
     } else if (argLen == 2) {
         const script = args.next();
-        try runFile(arena.allocator(), script.?, v);
+        try runFile(arena.allocator(), script.?, &v);
     } else {
         std.debug.print("Usage: clox [path]\n", .{});
     }
