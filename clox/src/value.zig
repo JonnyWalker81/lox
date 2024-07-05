@@ -70,8 +70,8 @@ pub const Upvalue = struct {
     allocator: std.mem.Allocator,
     // isLocal: bool,
     location: *Value,
-    // next: ?Self,
-    // closed: Value,
+    next: ?*Self = null,
+    closed: Value = undefined,
 
     pub fn init(allocator: std.mem.Allocator, location: *Value) *Self {
         const upvalue = allocator.create(Self) catch unreachable;
@@ -94,7 +94,7 @@ pub const Value = union(enum) {
     function: Function,
     native: Native,
     closure: *Closure,
-    upvalue: Upvalue,
+    upvalue: *Upvalue,
 
     pub fn isNil(self: Value) bool {
         return self == .nil;

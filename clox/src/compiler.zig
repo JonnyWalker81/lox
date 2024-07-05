@@ -94,6 +94,7 @@ const Parser = struct {
 pub const Local = struct {
     name: scanner.Token,
     depth: i32,
+    isCaptured: bool = false,
 };
 
 const LocalsCount = std.math.maxInt(u8) + 1;
@@ -142,6 +143,7 @@ pub const Compiler = struct {
         const local = &c.locals[c.localCount];
         c.localCount += 1;
         local.depth = 0;
+        local.isCaptured = false;
         local.name.start = 0;
         local.name.length = 0;
 
@@ -288,7 +290,12 @@ pub const Compiler = struct {
         self.scopeDepth -= 1;
 
         while (self.localCount > 0 and self.locals[self.localCount - 1].depth > self.scopeDepth) {
-            try self.emitByte(@intFromEnum(chunk.OpCode.OpPop));
+            if (self.locals[self.localCount - 1].isCaptured) {
+                try self.emitByte(@intFromEnum(chunk.OpCode.OpCloseUpvalue));
+            } else {
+                try self.emitByte(@intFromEnum(chunk.OpCode.OpPop));
+            }
+
             self.localCount -= 1;
         }
     }
@@ -542,7 +549,7 @@ pub const Compiler = struct {
 
         const local = try self.enclosing.?.resolveLocal(name);
         if (local != -1) {
-            // self.enclosing.locals[@intCast(local)].isCaptured = true;
+            self.enclosing.?.locals[@intCast(local)].isCaptured = true;
             return try self.addUpvalue(@intCast(local), true);
         }
 

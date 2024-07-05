@@ -65,6 +65,7 @@ pub const VM = struct {
     // frames: std.ArrayList(CallFrame),
     frameCount: usize = 0,
     // strings: std.StringHashMap(void),
+    openUpvalues: ?*value.Upvalue = null,
 
     pub fn init(allocator: std.mem.Allocator) Self {
         var stack: [StackSize]value.Value = undefined;
@@ -181,8 +182,38 @@ pub const VM = struct {
     }
 
     fn captureValue(self: *Self, local: *value.Value) *value.Upvalue {
-        const upvalue = value.Upvalue.init(self.arena.allocator(), local);
-        return upvalue;
+        var prevUpvalue: ?*value.Upvalue = null;
+        var upvalue = self.openUpvalues;
+        while (upvalue != null and @intFromPtr(upvalue.?.location) > @intFromPtr(local)) : (upvalue = upvalue.?.next) {
+            // if (upvalue.location == local) {
+            //     return upvalue;
+            // }
+            prevUpvalue = upvalue;
+        }
+
+        if (upvalue != null and @intFromPtr(upvalue.?.location) == @intFromPtr(local)) {
+            return upvalue.?;
+        }
+
+        const createdUpvalue = value.Upvalue.init(self.arena.allocator(), local);
+        createdUpvalue.next = upvalue;
+
+        if (prevUpvalue == null) {
+            self.openUpvalues = createdUpvalue;
+        } else {
+            prevUpvalue.?.next = createdUpvalue;
+        }
+
+        return createdUpvalue;
+    }
+
+    fn closeUpvalues(self: *Self, last: *value.Value) void {
+        while (self.openUpvalues != null and @intFromPtr(self.openUpvalues.?.location) >= @intFromPtr(last)) {
+            const upvalue = self.openUpvalues.?;
+            upvalue.closed = upvalue.location.*;
+            upvalue.location = &upvalue.closed;
+            self.openUpvalues = upvalue.next;
+        }
     }
 
     fn call(self: *Self, c: *value.Closure, argCount: u8) bool {
@@ -324,8 +355,14 @@ pub const VM = struct {
                     //     self.stack[self.stackTop - i - 1] = val;
                     // }
                 },
+                .OpCloseUpvalue => {
+                    self.closeUpvalues(&self.stack[self.stackTop - 1]);
+                    // self.closeUpvalues(f.slot);
+                    _ = self.pop();
+                },
                 .OpReturn => {
                     const result = self.pop();
+                    self.closeUpvalues(&self.stack[f.slot]);
                     self.frameCount -= 1;
                     if (self.frameCount == 0) {
                         _ = self.pop();
