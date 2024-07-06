@@ -32,6 +32,8 @@ pub fn build(b: *std.Build) void {
     const options = b.addOptions();
     options.addOption(bool, "debug_trace_execution", true);
     options.addOption(bool, "debug_print_code", true);
+    options.addOption(bool, "debug_stress_gc", true);
+    options.addOption(bool, "debug_log_gc", true);
 
     const exe = b.addExecutable(.{
         .name = "clox",

@@ -125,7 +125,7 @@ pub const VM = struct {
     }
 
     fn defineNative(self: *Self, name: []const u8, function: value.NativeFn) !void {
-        self.push(.{ .string = name });
+        self.push(.{ .string = .{ .string = name } });
         self.push(.{ .native = .{
             .allocator = self.arena.allocator(),
             .function = function,
@@ -490,7 +490,7 @@ pub const VM = struct {
                 } else if (a.isString() and b.isString()) {
                     const s = try std.fmt.allocPrint(self.arena.allocator(), "{s}{s}", .{ a.stringValue(), b.stringValue() });
                     // try self.strings.put(s, void{});
-                    const result = .{ .string = s };
+                    const result = .{ .string = .{ .string = s } };
                     self.push(result);
                     return;
                 }

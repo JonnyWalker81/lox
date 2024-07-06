@@ -366,7 +366,7 @@ pub const Compiler = struct {
     fn string(self: *Self, _: bool) !void {
         const prevStart = self.parser.previous.start + 1;
         const prevLength = self.parser.previous.length - 2;
-        const strVal: value.Value = .{ .string = self.scnr.source[prevStart .. prevStart + prevLength] };
+        const strVal: value.Value = .{ .string = .{ .string = self.scnr.source[prevStart .. prevStart + prevLength] } };
         // const s = try std.fmt.allocPrint(self.arena.allocator(), "{s}", .{strVal.string});
         // try self.v.strings.put(s, void{});
         try self.emitConstant(strVal);
@@ -454,7 +454,7 @@ pub const Compiler = struct {
 
     fn identifierConstant(self: *Self, name: scanner.Token) !u8 {
         const strVal = try std.fmt.allocPrint(self.arena.allocator(), "{s}", .{self.scnr.source[name.start .. name.start + name.length]});
-        const constant = try self.makeConstant(.{ .string = strVal });
+        const constant = try self.makeConstant(.{ .string = .{ .string = strVal } });
         return constant;
     }
 

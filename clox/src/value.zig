@@ -2,6 +2,23 @@ const std = @import("std");
 const memory = @import("memory.zig");
 const chunk = @import("chunk.zig");
 
+pub const String = struct {
+    const Self = @This();
+    string: []const u8,
+
+    pub fn format(
+        self: Self,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = fmt;
+        _ = options;
+
+        try writer.print("{s}", .{self.string});
+    }
+};
+
 pub const Function = struct {
     const Self = @This();
 
@@ -90,7 +107,7 @@ pub const Value = union(enum) {
     bool: bool,
     nil,
     number: f64,
-    string: []const u8,
+    string: String,
     function: Function,
     native: Native,
     closure: *Closure,
@@ -158,7 +175,7 @@ pub const Value = union(enum) {
 
     pub fn stringValue(self: Value) []const u8 {
         switch (self) {
-            .string => |s| return s,
+            .string => |s| return s.string,
             else => return "",
         }
     }
@@ -236,7 +253,7 @@ pub const Value = union(enum) {
                 try writer.print("{d}", .{n});
             },
             .string => |s| {
-                try writer.print("{s}", .{s});
+                try writer.print("{s}", .{s.string});
             },
             .function => |f| {
                 if (f.name.len > 0) {
