@@ -13,7 +13,7 @@ pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(gpa.allocator());
     defer arena.deinit();
 
-    var v = vm.VM.init(arena.allocator());
+    var v = vm.VM.init(gpa.allocator());
     defer v.deinit();
 
     if (argLen == 1) {
@@ -21,7 +21,7 @@ pub fn main() !void {
         return std.process.exit(64);
     } else if (argLen == 2) {
         const script = args.next();
-        try runFile(arena.allocator(), script.?, &v);
+        try runFile(gpa.allocator(), script.?, &v);
     } else {
         std.debug.print("Usage: clox [path]\n", .{});
     }

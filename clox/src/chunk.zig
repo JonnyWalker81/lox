@@ -39,6 +39,7 @@ pub const OpCode = enum(u8) {
 pub const Chunk = struct {
     const Self = @This();
 
+    allocator: std.mem.Allocator,
     arena: std.heap.ArenaAllocator,
     count: usize = 0,
     capacity: usize = 0,
@@ -54,6 +55,7 @@ pub const Chunk = struct {
         // const constants = value.ValueArray.init(allocator);
         const constants = std.ArrayList(value.Value).init(allocator);
         chunk.* = .{
+            .allocator = allocator,
             .arena = arena,
             .constants = constants,
             .code = std.ArrayList(u8).init(allocator),
@@ -64,6 +66,9 @@ pub const Chunk = struct {
 
     pub fn deinit(self: *Self) void {
         self.arena.deinit();
+        self.constants.deinit();
+        self.code.deinit();
+        self.allocator.destroy(self);
     }
 
     pub fn writeChunk(self: *Self, byte: u8, line: usize) !void {

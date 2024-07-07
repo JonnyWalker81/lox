@@ -4,6 +4,7 @@ const debug = @import("debug.zig");
 const build_options = @import("build_options");
 const value = @import("value.zig");
 const compiler = @import("compiler.zig");
+const memory = @import("memory.zig");
 
 pub const InterpreterError = error{
     compile_error,
@@ -55,6 +56,7 @@ pub const VM = struct {
     const Self = @This();
 
     arena: std.heap.ArenaAllocator,
+    gcAllocator: memory.GCAllocator,
     // chnk: ?*chunk.Chunk = null,
     // ip: usize = 0,
     stack: [StackSize]value.Value,
@@ -82,6 +84,7 @@ pub const VM = struct {
             .comp = compiler.Compiler.init(allocator),
             .globals = std.StringHashMap(value.Value).init(allocator),
             .frames = frames,
+            .gcAllocator = memory.GCAllocator.init(allocator, stack[0..]),
             // .frames = std.ArrayList(CallFrame).init(allocator),
             // .strings = std.StringHashMap(void).init(allocator),
         };
@@ -96,7 +99,13 @@ pub const VM = struct {
         //     c.deinit();
         // }
 
+        // var iter = self.globals.iterator();
+        // while (iter.next()) |entry| {
+        //     entry.key_ptr().deinit();
+        // }
+
         self.globals.deinit();
+        self.comp.deinit();
     }
 
     fn resetStack(self: *Self) void {
@@ -125,11 +134,11 @@ pub const VM = struct {
     }
 
     fn defineNative(self: *Self, name: []const u8, function: value.NativeFn) !void {
-        self.push(.{ .string = .{ .string = name } });
-        self.push(.{ .native = .{
-            .allocator = self.arena.allocator(),
-            .function = function,
-        } });
+        const s: value.Value = .{ .string = value.String.init(self.gcAllocator.allocator(), name) };
+        defer s.string.deinit();
+
+        self.push(s);
+        self.push(.{ .native = value.Native.init(self.arena.allocator(), function) });
         // const val = .{ .native = .{ .function = function } };
         try self.globals.put(self.stack[0].stringValue(), self.stack[1]);
         _ = self.pop();
@@ -490,7 +499,8 @@ pub const VM = struct {
                 } else if (a.isString() and b.isString()) {
                     const s = try std.fmt.allocPrint(self.arena.allocator(), "{s}{s}", .{ a.stringValue(), b.stringValue() });
                     // try self.strings.put(s, void{});
-                    const result = .{ .string = .{ .string = s } };
+                    // const result = .{ .string = value.String.init(self.arena.allocator(), s) };
+                    const result = .{ .string = value.String.init(self.gcAllocator.allocator(), s) };
                     self.push(result);
                     return;
                 }

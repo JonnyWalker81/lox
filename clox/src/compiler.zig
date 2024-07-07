@@ -74,6 +74,7 @@ const rules = [_]ParseRule{
 const Parser = struct {
     const Self = @This();
 
+    allocator: std.mem.Allocator,
     current: scanner.Token = scanner.Token.init(),
     previous: scanner.Token = scanner.Token.init(),
     hadError: bool = false,
@@ -81,13 +82,19 @@ const Parser = struct {
 
     pub fn init(allocator: std.mem.Allocator) *Parser {
         const p = allocator.create(Self) catch unreachable;
-        p.* = .{};
+        p.* = .{
+            .allocator = allocator,
+        };
         return p;
     }
 
     pub fn parse(self: *Self, source: []const u8) !void {
         _ = self;
         _ = source;
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.allocator.destroy(self);
     }
 };
 
@@ -167,6 +174,8 @@ pub const Compiler = struct {
 
     pub fn deinit(self: *Compiler) void {
         self.arena.deinit();
+        self.function.function.deinit();
+        self.parser.deinit();
     }
 
     pub fn compile(self: *Self, source: []const u8) !value.Value {
@@ -366,7 +375,8 @@ pub const Compiler = struct {
     fn string(self: *Self, _: bool) !void {
         const prevStart = self.parser.previous.start + 1;
         const prevLength = self.parser.previous.length - 2;
-        const strVal: value.Value = .{ .string = .{ .string = self.scnr.source[prevStart .. prevStart + prevLength] } };
+        const s = self.scnr.source[prevStart .. prevStart + prevLength];
+        const strVal: value.Value = .{ .string = value.String.init(self.arena.allocator(), s) };
         // const s = try std.fmt.allocPrint(self.arena.allocator(), "{s}", .{strVal.string});
         // try self.v.strings.put(s, void{});
         try self.emitConstant(strVal);
@@ -454,7 +464,7 @@ pub const Compiler = struct {
 
     fn identifierConstant(self: *Self, name: scanner.Token) !u8 {
         const strVal = try std.fmt.allocPrint(self.arena.allocator(), "{s}", .{self.scnr.source[name.start .. name.start + name.length]});
-        const constant = try self.makeConstant(.{ .string = .{ .string = strVal } });
+        const constant = try self.makeConstant(.{ .string = value.String.init(self.arena.allocator(), strVal) });
         return constant;
     }
 

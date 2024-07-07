@@ -4,7 +4,23 @@ const chunk = @import("chunk.zig");
 
 pub const String = struct {
     const Self = @This();
+
+    allocator: std.mem.Allocator,
     string: []const u8,
+
+    pub fn init(allocator: std.mem.Allocator, string: []const u8) *Self {
+        const str = allocator.create(Self) catch unreachable;
+        str.* = .{
+            .allocator = allocator,
+            .string = string,
+        };
+
+        return str;
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.allocator.destroy(self);
+    }
 
     pub fn format(
         self: Self,
@@ -28,15 +44,19 @@ pub const Function = struct {
     chnk: *chunk.Chunk,
     name: []const u8 = "",
 
-    pub fn init(allocator: std.mem.Allocator) Self {
-        return .{
+    pub fn init(allocator: std.mem.Allocator) *Self {
+        const f = allocator.create(Self) catch unreachable;
+        f.* = .{
             .allocator = allocator,
             .chnk = chunk.Chunk.init(allocator),
         };
+
+        return f;
     }
 
     pub fn deinit(self: *Self) void {
         self.chnk.deinit();
+        self.allocator.destroy(self);
     }
 
     pub fn incrementArity(self: *Self) void {
@@ -51,23 +71,30 @@ pub const Function = struct {
 pub const NativeFn = *const fn (u8, []Value) Value;
 
 pub const Native = struct {
+    const Self = @This();
+
     allocator: std.mem.Allocator,
     function: NativeFn,
 
-    pub fn init(allocator: std.mem.Allocator, function: NativeFn) Native {
-        return .{
+    pub fn init(allocator: std.mem.Allocator, function: NativeFn) *Self {
+        const n = allocator.create(Native) catch unreachable;
+        n.* = .{
             .allocator = allocator,
             .function = function,
         };
+
+        return n;
     }
 };
 
 pub const Closure = struct {
+    const Self = @This();
+
     allocator: std.mem.Allocator,
-    function: Function,
+    function: *Function,
     upvalues: []*Upvalue,
 
-    pub fn init(allocator: std.mem.Allocator, function: Function) *Closure {
+    pub fn init(allocator: std.mem.Allocator, function: *Function) *Self {
         const upvalues = allocator.alloc(*Upvalue, function.upvalueCount) catch unreachable;
         @memset(upvalues, undefined);
         const closure = allocator.create(Closure) catch unreachable;
@@ -107,9 +134,9 @@ pub const Value = union(enum) {
     bool: bool,
     nil,
     number: f64,
-    string: String,
-    function: Function,
-    native: Native,
+    string: *String,
+    function: *Function,
+    native: *Native,
     closure: *Closure,
     upvalue: *Upvalue,
 
@@ -159,6 +186,17 @@ pub const Value = union(enum) {
         }
     }
 
+    pub fn isObject(self: Value) bool {
+        switch (self) {
+            .string => return true,
+            .function => return true,
+            .native => return true,
+            .closure => return true,
+            .upvalue => return true,
+            else => return false,
+        }
+    }
+
     pub fn boolValue(self: Value) bool {
         switch (self) {
             .bool => |b| return b,
@@ -180,7 +218,7 @@ pub const Value = union(enum) {
         }
     }
 
-    pub fn functionValue(self: Value) Function {
+    pub fn functionValue(self: Value) *Function {
         switch (self) {
             .function => |f| return f,
             else => @panic("expected function, not a function."),
