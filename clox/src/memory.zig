@@ -1,39 +1,40 @@
 const std = @import("std");
 const build_options = @import("build_options");
 const value = @import("value.zig");
+const VM = @import("vm.zig").VM;
+const debug = @import("debug.zig");
 
 pub const GCAllocator = struct {
     const Self = @This();
 
     backingAllocator: std.mem.Allocator,
-    stack: [*]value.Value,
+    vm: *VM,
 
-    pub fn init(backingAllocator: std.mem.Allocator, stack: [*]value.Value) Self {
+    const vtable: std.mem.Allocator.VTable = .{ .alloc = alloc, .resize = resize, .free = free };
+
+    pub fn init(backingAllocator: std.mem.Allocator, vm: *VM) Self {
         return Self{
             .backingAllocator = backingAllocator,
-            .stack = stack,
+            .vm = vm,
         };
     }
 
     pub fn allocator(self: *Self) std.mem.Allocator {
         return .{
             .ptr = self,
-            .vtable = &.{
-                .alloc = alloc,
-                .resize = resize,
-                .free = free,
-            },
+            .vtable = &vtable,
         };
     }
 
     fn alloc(
         ctx: *anyopaque,
         len: usize,
-        log2_ptr_align: u8,
+        ptr_align: u8,
         ra: usize,
     ) ?[*]u8 {
+        std.debug.print("alloc\n", .{});
         const self: *Self = @ptrCast(@alignCast(ctx));
-        return self.backingAllocator.rawAlloc(len, log2_ptr_align, ra);
+        return self.backingAllocator.rawAlloc(len, ptr_align, ra);
     }
 
     fn resize(
@@ -43,6 +44,7 @@ pub const GCAllocator = struct {
         new_len: usize,
         ra: usize,
     ) bool {
+        std.debug.print("resize\n", .{});
         const self: *Self = @ptrCast(@alignCast(ctx));
         const size = self.backingAllocator.rawResize(buf, log2_buf_align, new_len, ra);
 
@@ -59,6 +61,7 @@ pub const GCAllocator = struct {
         log2_buf_align: u8,
         ra: usize,
     ) void {
+        std.debug.print("free\n", .{});
         const self: *Self = @ptrCast(@alignCast(ctx));
         self.backingAllocator.rawFree(buf, log2_buf_align, ra);
     }
@@ -76,29 +79,38 @@ pub const GCAllocator = struct {
     }
 
     fn markRoots(self: *Self) void {
-        _ = self;
-        // for (0..self.stack.len) |i| {
-        //     self.markValue(self.stack[i]);
-        // }
+        for (0..self.vm.stackTop) |i| {
+            self.markValue(self.vm.stack[i]);
+        }
+
+        // self.markTable(self.vm.globals);
     }
 
-    // fn markValue(self: *Self, v: value.Value) void {
-    //     if (v.isObject()) {
-    //         self.markObject(v);
-    //     }
-    // }
+    fn markValue(self: *Self, v: value.Value) void {
+        if (v.isObject()) {
+            self.markObject(v);
+        }
+    }
 
-    // fn markObject(self: *Self, v: value.Value) void {
-    //     const obj = v.asObject();
+    fn markObject(self: *Self, v: value.Value) void {
+        _ = self;
 
-    //     if (obj.isMarked()) {
-    //         return;
-    //     }
+        const obj = v.asObject();
 
-    //     obj.mark();
+        if (build_options.debug_log_gc) {
+            std.debug.print("{*} mark ", .{obj});
+            debug.printValue(v);
+            std.debug.print("\n", .{});
+        }
 
-    //     for (obj.fields) |field| {
-    //         self.markValue(*field);
+        obj.isMarked = true;
+    }
+
+    // fn markTable(self: *Self, table: *std.AutoHashMap()) void {
+    //     var iter = table.iterator();
+    //     while (iter.next()) |entry| {
+    //         self.markObject(entry.key_ptr.asObject());
+    //         self.markValue(entry.value_ptr.*);
     //     }
     // }
 };

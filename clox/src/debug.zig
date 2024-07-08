@@ -15,17 +15,13 @@ pub fn disassembleInstruction(c: *chunk.Chunk, offset: usize) usize {
     std.debug.print("{d:0>4} ", .{offset});
 
     if (offset > 0) {
-        if (c.lines) |lines| {
-            if (lines[offset] == lines[offset - 1]) {
-                std.debug.print("   | ", .{});
-            } else {
-                std.debug.print("{d:4} ", .{lines[offset]});
-            }
+        if (c.lines.items[offset] == c.lines.items[offset - 1]) {
+            std.debug.print("   | ", .{});
+        } else {
+            std.debug.print("{d:4} ", .{c.lines.items[offset]});
         }
     } else {
-        if (c.lines) |lines| {
-            std.debug.print("{d:4} ", .{lines[offset]});
-        }
+        std.debug.print("{d:4} ", .{c.lines.items[offset]});
     }
 
     // if (c.code) |code| {

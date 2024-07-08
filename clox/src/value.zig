@@ -1,19 +1,43 @@
 const std = @import("std");
 const memory = @import("memory.zig");
 const chunk = @import("chunk.zig");
+const VM = @import("vm.zig").VM;
+
+pub const Obj = struct {
+    const Self = @This();
+
+    isMarked: bool = false,
+    next: ?*Self = null,
+
+    pub fn init() Self {
+        return .{ .isMarked = false };
+    }
+
+    pub fn isMarked(self: *Self) bool {
+        return self.isMarked;
+    }
+};
 
 pub const String = struct {
     const Self = @This();
 
     allocator: std.mem.Allocator,
+    obj: Obj,
     string: []const u8,
 
-    pub fn init(allocator: std.mem.Allocator, string: []const u8) *Self {
+    pub fn init(allocator: std.mem.Allocator, string: []const u8, vm: *VM) *Self {
+        if (vm.strings.get(string)) |s| {
+            return s;
+        }
+
         const str = allocator.create(Self) catch unreachable;
         str.* = .{
             .allocator = allocator,
             .string = string,
+            .obj = Obj.init(),
         };
+
+        vm.strings.put(string, str) catch @panic("failed to put string in vm.strings");
 
         return str;
     }
@@ -39,6 +63,7 @@ pub const Function = struct {
     const Self = @This();
 
     allocator: std.mem.Allocator,
+    obj: Obj,
     arity: u8 = 0,
     upvalueCount: u8 = 0,
     chnk: *chunk.Chunk,
@@ -49,6 +74,7 @@ pub const Function = struct {
         f.* = .{
             .allocator = allocator,
             .chnk = chunk.Chunk.init(allocator),
+            .obj = Obj.init(),
         };
 
         return f;
@@ -74,6 +100,7 @@ pub const Native = struct {
     const Self = @This();
 
     allocator: std.mem.Allocator,
+    obj: Obj,
     function: NativeFn,
 
     pub fn init(allocator: std.mem.Allocator, function: NativeFn) *Self {
@@ -81,6 +108,7 @@ pub const Native = struct {
         n.* = .{
             .allocator = allocator,
             .function = function,
+            .obj = Obj.init(),
         };
 
         return n;
@@ -91,6 +119,7 @@ pub const Closure = struct {
     const Self = @This();
 
     allocator: std.mem.Allocator,
+    obj: Obj,
     function: *Function,
     upvalues: []*Upvalue,
 
@@ -102,6 +131,7 @@ pub const Closure = struct {
             .allocator = allocator,
             .function = function,
             .upvalues = upvalues,
+            .obj = Obj.init(),
         };
 
         return closure;
@@ -113,6 +143,7 @@ pub const Upvalue = struct {
 
     allocator: std.mem.Allocator,
     // isLocal: bool,
+    obj: Obj,
     location: *Value,
     next: ?*Self = null,
     closed: Value = undefined,
@@ -122,6 +153,7 @@ pub const Upvalue = struct {
         upvalue.* = .{
             .allocator = allocator,
             .location = location,
+            .obj = Obj.init(),
         };
 
         return upvalue;
@@ -236,6 +268,24 @@ pub const Value = union(enum) {
         switch (self) {
             .closure => |c| return c,
             else => @panic("expected closure, not a closure."),
+        }
+    }
+
+    pub fn asString(self: Value) *String {
+        switch (self) {
+            .string => |s| return @fieldParentPtr("obj", &s.obj),
+            else => @panic("expected string, not a string."),
+        }
+    }
+
+    pub fn asObject(self: Value) *Obj {
+        switch (self) {
+            .string => |s| return &s.obj,
+            .function => |f| return &f.obj,
+            .native => |n| return &n.obj,
+            .closure => |c| return &c.obj,
+            .upvalue => |u| return &u.obj,
+            else => @panic("expected object, not a object."),
         }
     }
 

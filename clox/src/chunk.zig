@@ -47,7 +47,7 @@ pub const Chunk = struct {
     code: std.ArrayList(u8),
     // constants: *value.ValueArray,
     constants: std.ArrayList(value.Value),
-    lines: ?[]usize = null,
+    lines: std.ArrayList(usize),
 
     pub fn init(allocator: std.mem.Allocator) *Chunk {
         const arena = std.heap.ArenaAllocator.init(allocator);
@@ -59,6 +59,7 @@ pub const Chunk = struct {
             .arena = arena,
             .constants = constants,
             .code = std.ArrayList(u8).init(allocator),
+            .lines = std.ArrayList(usize).init(allocator),
         };
 
         return chunk;
@@ -68,6 +69,7 @@ pub const Chunk = struct {
         self.arena.deinit();
         self.constants.deinit();
         self.code.deinit();
+        self.lines.deinit();
         self.allocator.destroy(self);
     }
 
@@ -83,14 +85,15 @@ pub const Chunk = struct {
         // }
 
         // if (self.code) |code| {
-        if (self.lines) |lines| {
-            lines[self.count] = line;
-            //         code[self.count] = byte;
-            //         self.count += 1;
-        }
+        // if (self.lines) |lines| {
+        //     lines[self.count] = line;
+        //     //         code[self.count] = byte;
+        //     //         self.count += 1;
+        // }
         // }
         //
         try self.code.append(byte);
+        try self.lines.append(line);
         self.count += 1;
     }
 

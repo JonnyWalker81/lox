@@ -26,16 +26,19 @@ pub const Table = struct {
     allocator: std.mem.Allocator,
     count: usize = 0,
     capacity: usize = 0,
-    entries: []?*Entry = undefined,
+    entries: []Entry = undefined,
 
     pub fn init(allocator: std.mem.Allocator) Self {
         return Self{
             .allocator = allocator,
+            .entries = &[_]Entry{},
         };
     }
 
     pub fn deinit(self: *Self) void {
         self.allocator.free(self.entries);
+        self.count = 0;
+        self.capacity = 0;
     }
 
     pub fn set(self: *Self, key: []const u8, val: value.Value) bool {

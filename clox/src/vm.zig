@@ -55,14 +55,16 @@ var testFrame: CallFrame = undefined;
 pub const VM = struct {
     const Self = @This();
 
+    allocator: std.mem.Allocator = undefined,
     arena: std.heap.ArenaAllocator,
-    gcAllocator: memory.GCAllocator,
+    gcAllocator: memory.GCAllocator = undefined,
     // chnk: ?*chunk.Chunk = null,
     // ip: usize = 0,
     stack: [StackSize]value.Value,
     stackTop: usize = 0,
-    comp: compiler.Compiler,
-    globals: std.StringHashMap(value.Value),
+    comp: compiler.Compiler = undefined,
+    strings: std.StringHashMap(*value.String) = undefined,
+    globals: std.AutoHashMap(*value.String, value.Value) = undefined,
     frames: [FrameMax]CallFrame,
     // frames: std.ArrayList(CallFrame),
     frameCount: usize = 0,
@@ -79,15 +81,20 @@ pub const VM = struct {
         const arena = std.heap.ArenaAllocator.init(allocator);
         // const vm = allocator.create(Self) catch unreachable;
         var vm: VM = .{
+            .allocator = allocator,
             .arena = arena,
             .stack = stack,
-            .comp = compiler.Compiler.init(allocator),
-            .globals = std.StringHashMap(value.Value).init(allocator),
+            // .globals = std.AutoHashMap(*value.String, value.Value).init(allocator),
             .frames = frames,
-            .gcAllocator = memory.GCAllocator.init(allocator, stack[0..]),
             // .frames = std.ArrayList(CallFrame).init(allocator),
             // .strings = std.StringHashMap(void).init(allocator),
         };
+
+        vm.comp = compiler.Compiler.init(allocator, &vm);
+        vm.gcAllocator = memory.GCAllocator.init(allocator, &vm);
+        // vm.strings = std.StringHashMap(*value.String).init(vm.gcAllocator.allocator());
+        vm.strings = std.StringHashMap(*value.String).init(vm.gcAllocator.allocator());
+        vm.globals = std.AutoHashMap(*value.String, value.Value).init(vm.gcAllocator.allocator());
 
         vm.defineNative("clock", clockNative) catch unreachable;
         return vm;
@@ -118,7 +125,7 @@ pub const VM = struct {
         while (i >= 0) : (i -= 1) {
             const frame = &self.frames[@intCast(i)];
             const instruction = frame.ip - 1;
-            const line = frame.closure.function.chnk.lines.?[instruction];
+            const line = frame.closure.function.chnk.lines.items[instruction];
             std.debug.print("[line {}] in ", .{line});
             if (frame.closure.function.name.len == 0) {
                 std.debug.print("script\n", .{});
@@ -134,13 +141,13 @@ pub const VM = struct {
     }
 
     fn defineNative(self: *Self, name: []const u8, function: value.NativeFn) !void {
-        const s: value.Value = .{ .string = value.String.init(self.gcAllocator.allocator(), name) };
+        const s: value.Value = .{ .string = value.String.init(self.gcAllocator.allocator(), name, self) };
         defer s.string.deinit();
 
         self.push(s);
         self.push(.{ .native = value.Native.init(self.arena.allocator(), function) });
         // const val = .{ .native = .{ .function = function } };
-        try self.globals.put(self.stack[0].stringValue(), self.stack[1]);
+        try self.globals.put(self.stack[0].asString(), self.stack[1]);
         _ = self.pop();
         _ = self.pop();
     }
@@ -407,17 +414,19 @@ pub const VM = struct {
                 },
                 .OpGetGlobal => {
                     const name = self.read_constant();
-                    if (self.globals.get(name.stringValue())) |val| {
+                    std.debug.print("OpSetGlobal: {s} -> {*}, {}\n", .{ name.stringValue(), name.asString(), self.globals.count() });
+                    if (self.globals.get(name.asString())) |val| {
                         self.push(val);
                     } else {
-                        self.runtimeError("Undefined variable '{s}'", .{name.stringValue()});
+                        self.runtimeError("GetGobal: Undefined variable '{s}'", .{name.stringValue()});
                         return InterpreterError.runtime_error;
                     }
                 },
                 .OpDefineGlobal => {
                     const name = self.read_constant();
+                    std.debug.print("OpDefineGlobal: {s} -> {*}\n", .{ name.stringValue(), name.asString() });
                     const val = self.peek(0);
-                    try self.globals.put(name.stringValue(), val);
+                    try self.globals.put(name.asString(), val);
                     _ = self.pop();
                     // try self.strings.put(name.stringValue(), void{});
                     // debug.printValue(name);
@@ -425,11 +434,11 @@ pub const VM = struct {
                 },
                 .OpSetGlobal => {
                     const name = self.read_constant();
-                    if (self.globals.contains(name.stringValue())) {
+                    if (self.globals.contains(name.asString())) {
                         const val = self.peek(0);
-                        try self.globals.put(name.stringValue(), val);
+                        try self.globals.put(name.asString(), val);
                     } else {
-                        self.runtimeError("Undefined variable '{s}'", .{name.stringValue()});
+                        self.runtimeError("SetGlobal: Undefined variable '{s}'", .{name.stringValue()});
                         return InterpreterError.runtime_error;
                     }
                 },
@@ -497,10 +506,10 @@ pub const VM = struct {
                     self.push(result);
                     return;
                 } else if (a.isString() and b.isString()) {
-                    const s = try std.fmt.allocPrint(self.arena.allocator(), "{s}{s}", .{ a.stringValue(), b.stringValue() });
+                    const s = try std.fmt.allocPrint(self.allocator, "{s}{s}", .{ a.stringValue(), b.stringValue() });
                     // try self.strings.put(s, void{});
                     // const result = .{ .string = value.String.init(self.arena.allocator(), s) };
-                    const result = .{ .string = value.String.init(self.gcAllocator.allocator(), s) };
+                    const result = .{ .string = value.String.init(self.allocator, s, self) };
                     self.push(result);
                     return;
                 }
