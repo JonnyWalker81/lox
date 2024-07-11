@@ -64,6 +64,7 @@ pub const VM = struct {
     stackTop: usize = 0,
     comp: compiler.Compiler = undefined,
     strings: std.StringHashMap(*value.String) = undefined,
+    // globals: std.AutoHashMap(*value.String, value.Value) = undefined,
     globals: std.AutoHashMap(*value.String, value.Value) = undefined,
     frames: [FrameMax]CallFrame,
     // frames: std.ArrayList(CallFrame),
@@ -90,11 +91,12 @@ pub const VM = struct {
             // .strings = std.StringHashMap(void).init(allocator),
         };
 
-        vm.comp = compiler.Compiler.init(allocator, &vm);
+        vm.comp = compiler.Compiler.init(allocator);
         vm.gcAllocator = memory.GCAllocator.init(allocator, &vm);
+        vm.strings = std.StringHashMap(*value.String).init(allocator);
         // vm.strings = std.StringHashMap(*value.String).init(vm.gcAllocator.allocator());
-        vm.strings = std.StringHashMap(*value.String).init(vm.gcAllocator.allocator());
-        vm.globals = std.AutoHashMap(*value.String, value.Value).init(vm.gcAllocator.allocator());
+        // vm.globals = std.AutoHashMap(*value.String, value.Value).init(vm.gcAllocator.allocator());
+        vm.globals = std.AutoHashMap(*value.String, value.Value).init(allocator);
 
         vm.defineNative("clock", clockNative) catch unreachable;
         return vm;
@@ -141,8 +143,9 @@ pub const VM = struct {
     }
 
     fn defineNative(self: *Self, name: []const u8, function: value.NativeFn) !void {
-        const s: value.Value = .{ .string = value.String.init(self.gcAllocator.allocator(), name, self) };
-        defer s.string.deinit();
+        std.debug.print("defineNative...\n", .{});
+        const s: value.Value = .{ .string = value.String.init(self, name) };
+        // defer s.string.deinit(self);
 
         self.push(s);
         self.push(.{ .native = value.Native.init(self.arena.allocator(), function) });
@@ -152,12 +155,12 @@ pub const VM = struct {
         _ = self.pop();
     }
 
-    fn push(self: *Self, v: value.Value) void {
+    pub fn push(self: *Self, v: value.Value) void {
         self.stack[self.stackTop] = v;
         self.stackTop += 1;
     }
 
-    fn pop(self: *Self) value.Value {
+    pub fn pop(self: *Self) value.Value {
         self.stackTop -= 1;
         return self.stack[self.stackTop];
     }
@@ -282,7 +285,7 @@ pub const VM = struct {
     }
 
     pub fn interpret(self: *Self, source: []const u8) !InterpretResult {
-        const c = try self.comp.compile(source);
+        const c = try self.comp.compile(source, self);
 
         self.push(c);
 
@@ -509,7 +512,7 @@ pub const VM = struct {
                     const s = try std.fmt.allocPrint(self.allocator, "{s}{s}", .{ a.stringValue(), b.stringValue() });
                     // try self.strings.put(s, void{});
                     // const result = .{ .string = value.String.init(self.arena.allocator(), s) };
-                    const result = .{ .string = value.String.init(self.allocator, s, self) };
+                    const result = .{ .string = value.String.init(self, s) };
                     self.push(result);
                     return;
                 }

@@ -21,29 +21,55 @@ pub const Obj = struct {
 pub const String = struct {
     const Self = @This();
 
-    allocator: std.mem.Allocator,
     obj: Obj,
     string: []const u8,
 
-    pub fn init(allocator: std.mem.Allocator, string: []const u8, vm: *VM) *Self {
-        if (vm.strings.get(string)) |s| {
-            return s;
-        }
+    pub fn init(vm: *VM, bytes: []const u8) *Self {
+        std.debug.print("String.init: {any}\n", .{vm.allocator});
+        // std.debug.print("String.init\n", .{});
+        const interned = vm.strings.get(bytes);
+        if (interned) |s| return s;
 
-        const str = allocator.create(Self) catch unreachable;
-        str.* = .{
-            .allocator = allocator,
-            .string = string,
-            .obj = Obj.init(),
-        };
+        const heapChars = vm.allocator.alloc(u8, bytes.len) catch unreachable;
 
-        vm.strings.put(string, str) catch @panic("failed to put string in vm.strings");
+        @memcpy(heapChars, bytes);
 
-        return str;
+        return allocate(vm, heapChars) catch unreachable;
+        // if (vm.strings.get(string)) |s| {
+        //     return s;
+        // }
+
+        // const str = allocator.create(Self) catch unreachable;
+        // str.* = .{
+        //     .allocator = allocator,
+        //     .string = bytes,
+        //     .obj = Obj.init(),
+        // };
+
+        // // vm.strings.put(string, str) catch @panic("failed to put string in vm.strings");
+
+        // return str;
     }
 
-    pub fn deinit(self: *Self) void {
-        self.allocator.destroy(self);
+    fn allocate(vm: *VM, bytes: []const u8) !*Self {
+        const string = vm.allocator.create(Self) catch unreachable;
+        string.* = .{
+            // .allocator = allocator,
+            .string = bytes,
+            .obj = Obj.init(),
+        };
+        // string.bytes = bytes;
+
+        // Make sure string is visible to the GC during allocation
+        vm.push(.{ .string = string });
+        _ = try vm.strings.put(bytes, string);
+        _ = vm.pop();
+        return string;
+    }
+
+    pub fn deinit(self: *Self, vm: *VM) void {
+        vm.allocator.free(self.string);
+        vm.allocator.destroy(self);
     }
 
     pub fn format(

@@ -133,7 +133,7 @@ pub const Compiler = struct {
     enclosing: ?*Compiler = null,
     vm: *VM = undefined,
 
-    pub fn init(allocator: std.mem.Allocator, vm: *VM) Compiler {
+    pub fn init(allocator: std.mem.Allocator) Compiler {
         var u: [UpvaluesCount]Upvalue = undefined;
         @memset(&u, undefined);
         const parser = Parser.init(allocator);
@@ -143,7 +143,6 @@ pub const Compiler = struct {
             .funcType = FunctionType.script,
             .function = .{ .function = value.Function.init(allocator) },
             .upvalues = u,
-            .vm = vm,
         };
 
         // std.debug.print("Compiler init: {any}\n", .{c.function.functionValue()});
@@ -159,7 +158,8 @@ pub const Compiler = struct {
     }
 
     pub fn initWithEnclosing(allocator: std.mem.Allocator, enclosing: *Compiler, typ: FunctionType) Compiler {
-        var c = Compiler.init(allocator, enclosing.vm);
+        var c = Compiler.init(allocator);
+        c.vm = enclosing.vm;
         c.parser = enclosing.parser;
         c.scnr = enclosing.scnr;
         c.enclosing = enclosing;
@@ -179,7 +179,8 @@ pub const Compiler = struct {
         self.parser.deinit();
     }
 
-    pub fn compile(self: *Self, source: []const u8) !value.Value {
+    pub fn compile(self: *Self, source: []const u8, vm: *VM) !value.Value {
+        self.vm = vm;
         self.scnr = scanner.Scanner.init(self.arena.allocator(), source);
         // self.v = v;
         const c = chunk.Chunk.init(self.arena.allocator());
@@ -377,7 +378,8 @@ pub const Compiler = struct {
         const prevStart = self.parser.previous.start + 1;
         const prevLength = self.parser.previous.length - 2;
         const s = self.scnr.source[prevStart .. prevStart + prevLength];
-        const strVal: value.Value = .{ .string = value.String.init(self.arena.allocator(), s, self.vm) };
+        std.debug.print("string...vm: {*}", .{self.vm});
+        const strVal: value.Value = .{ .string = value.String.init(self.vm, s) };
         // const s = try std.fmt.allocPrint(self.arena.allocator(), "{s}", .{strVal.string});
         // try self.v.strings.put(s, void{});
         try self.emitConstant(strVal);
@@ -464,9 +466,11 @@ pub const Compiler = struct {
     }
 
     fn identifierConstant(self: *Self, name: scanner.Token) !u8 {
-        const s = try std.fmt.allocPrint(self.vm.allocator, "{s}", .{self.scnr.source[name.start .. name.start + name.length]});
-        // const s = self.scnr.source[name.start .. name.start + name.length];
-        const constant = try self.makeConstant(.{ .string = value.String.init(self.vm.allocator, s, self.vm) });
+        std.debug.print("vm: {*}\n", .{self.vm});
+        // const s = try std.fmt.allocPrint(self.arena.allocator(), "{s}", .{self.scnr.source[name.start .. name.start + name.length]});
+        const s = self.scnr.source[name.start .. name.start + name.length];
+        // const constant = try self.makeConstant(.{ .string = value.String.init(self.vm.allocator, s, self.vm) });
+        const constant = try self.makeConstant(.{ .string = value.String.init(self.vm, s) });
         return constant;
     }
 
