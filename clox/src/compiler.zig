@@ -167,7 +167,8 @@ pub const Compiler = struct {
 
         if (typ != .script) {
             const s = c.scnr.source[c.parser.previous.start .. c.parser.previous.start + c.parser.previous.length];
-            c.function.function.name = std.fmt.allocPrint(allocator, "{s}", .{s}) catch unreachable;
+            // c.function.function.name = std.fmt.allocPrint(allocator, "{s}", .{s}) catch unreachable;
+            c.function.function.name = value.String.init(c.vm, s);
         }
 
         return c;
@@ -175,7 +176,7 @@ pub const Compiler = struct {
 
     pub fn deinit(self: *Compiler) void {
         self.arena.deinit();
-        self.function.function.deinit();
+        self.function.function.deinit(self.vm);
         self.parser.deinit();
     }
 
@@ -285,7 +286,8 @@ pub const Compiler = struct {
         const f = self.function;
 
         if (build_options.debug_print_code and !self.parser.hadError) {
-            debug.disassembleChunk(self.currentChunk(), if (f.functionValue().name.len > 0) f.functionValue().name else "<script>");
+            const fv = f.functionValue();
+            debug.disassembleChunk(self.currentChunk(), if (fv.name != null) fv.name.?.string else "<script>");
         }
 
         // std.debug.print("End compiler: {any}\n", .{func.functionValue()});
@@ -378,7 +380,6 @@ pub const Compiler = struct {
         const prevStart = self.parser.previous.start + 1;
         const prevLength = self.parser.previous.length - 2;
         const s = self.scnr.source[prevStart .. prevStart + prevLength];
-        std.debug.print("string...vm: {*}", .{self.vm});
         const strVal: value.Value = .{ .string = value.String.init(self.vm, s) };
         // const s = try std.fmt.allocPrint(self.arena.allocator(), "{s}", .{strVal.string});
         // try self.v.strings.put(s, void{});
@@ -466,7 +467,6 @@ pub const Compiler = struct {
     }
 
     fn identifierConstant(self: *Self, name: scanner.Token) !u8 {
-        std.debug.print("vm: {*}\n", .{self.vm});
         // const s = try std.fmt.allocPrint(self.arena.allocator(), "{s}", .{self.scnr.source[name.start .. name.start + name.length]});
         const s = self.scnr.source[name.start .. name.start + name.length];
         // const constant = try self.makeConstant(.{ .string = value.String.init(self.vm.allocator, s, self.vm) });

@@ -191,13 +191,16 @@ pub fn printValue(val: value.Value) void {
             std.debug.print("{s}", .{s});
         },
         .function => |f| {
-            std.debug.print("<fn {s}>", .{f.name});
+            if (f.name) |name| {
+                std.debug.print("<fn {s}>", .{name});
+            }
         },
         .native => |_| {
             std.debug.print("<native fn>", .{});
         },
         .closure => |c| {
-            std.debug.print("<closure {s}>", .{c.function.name});
+            const name = if (c.function.name) |name| name.string else "script";
+            std.debug.print("<closure {s}>", .{name});
         },
         .upvalue => |_| {
             std.debug.print("<upvalue>", .{});

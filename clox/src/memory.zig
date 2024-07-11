@@ -3,6 +3,7 @@ const build_options = @import("build_options");
 const value = @import("value.zig");
 const VM = @import("vm.zig").VM;
 const debug = @import("debug.zig");
+const Compiler = @import("compiler.zig").Compiler;
 
 pub const GCAllocator = struct {
     const Self = @This();
@@ -34,6 +35,8 @@ pub const GCAllocator = struct {
     ) ?[*]u8 {
         std.debug.print("alloc\n", .{});
         const self: *Self = @ptrCast(@alignCast(ctx));
+
+        self.collectGarbage() catch @panic("gc failed");
         return self.backingAllocator.rawAlloc(len, ptr_align, ra);
     }
 
@@ -83,36 +86,60 @@ pub const GCAllocator = struct {
             self.markValue(self.vm.stack[i]);
         }
 
-        // self.markTable(self.vm.globals);
+        self.markTable(&self.vm.globals);
+
+        for (0..self.vm.frameCount) |i| {
+            self.markObject(@constCast(&.{ .closure = self.vm.frames[i].closure }));
+        }
+
+        var upvalue = self.vm.openUpvalues;
+        while (upvalue != null) : (upvalue = upvalue.?.next) {
+            self.markObject(@constCast(&.{ .upvalue = upvalue.? }));
+        }
+    }
+
+    fn traceReferences(self: *Self) void {
+        while (self.vm.grayStack.len > 0) : (self.vm.grayStack.pop()) {
+            const obj = self.vm.grayStack[self.vm.grayStack.len - 1];
+            self.blackenObject(obj);
+        }
     }
 
     fn markValue(self: *Self, v: value.Value) void {
         if (v.isObject()) {
-            self.markObject(v);
+            const obj = @constCast(&v);
+            self.markObject(obj);
         }
     }
 
-    fn markObject(self: *Self, v: value.Value) void {
-        _ = self;
-
-        const obj = v.asObject();
+    fn markObject(self: *Self, v: *value.Value) void {
+        var obj = v.asObject();
 
         if (build_options.debug_log_gc) {
             std.debug.print("{*} mark ", .{obj});
-            debug.printValue(v);
+            debug.printValue(v.*);
             std.debug.print("\n", .{});
         }
 
         obj.isMarked = true;
+
+        self.vm.grayStack.append(obj) catch @panic("grayStack append failed");
     }
 
-    // fn markTable(self: *Self, table: *std.AutoHashMap()) void {
-    //     var iter = table.iterator();
-    //     while (iter.next()) |entry| {
-    //         self.markObject(entry.key_ptr.asObject());
-    //         self.markValue(entry.value_ptr.*);
-    //     }
-    // }
+    fn markTable(self: *Self, table: *std.AutoHashMap(*value.String, value.Value)) void {
+        var iter = table.iterator();
+        while (iter.next()) |entry| {
+            self.markObject(@constCast(&.{ .string = @constCast(entry.key_ptr.*) }));
+            self.markValue(entry.value_ptr.*);
+        }
+    }
+
+    fn markCompilerRoots(self: *Self) void {
+        var compiler: ?*Compiler = self.vm.compiler;
+        while (compiler) : (compiler = compiler.?.enclosing) {
+            self.markObject(&compiler.function);
+        }
+    }
 };
 
 pub fn growCapacity(capacity: usize) usize {

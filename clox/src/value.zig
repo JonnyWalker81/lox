@@ -25,8 +25,6 @@ pub const String = struct {
     string: []const u8,
 
     pub fn init(vm: *VM, bytes: []const u8) *Self {
-        std.debug.print("String.init: {any}\n", .{vm.allocator});
-        // std.debug.print("String.init\n", .{});
         const interned = vm.strings.get(bytes);
         if (interned) |s| return s;
 
@@ -35,30 +33,14 @@ pub const String = struct {
         @memcpy(heapChars, bytes);
 
         return allocate(vm, heapChars) catch unreachable;
-        // if (vm.strings.get(string)) |s| {
-        //     return s;
-        // }
-
-        // const str = allocator.create(Self) catch unreachable;
-        // str.* = .{
-        //     .allocator = allocator,
-        //     .string = bytes,
-        //     .obj = Obj.init(),
-        // };
-
-        // // vm.strings.put(string, str) catch @panic("failed to put string in vm.strings");
-
-        // return str;
     }
 
     fn allocate(vm: *VM, bytes: []const u8) !*Self {
         const string = vm.allocator.create(Self) catch unreachable;
         string.* = .{
-            // .allocator = allocator,
             .string = bytes,
             .obj = Obj.init(),
         };
-        // string.bytes = bytes;
 
         // Make sure string is visible to the GC during allocation
         vm.push(.{ .string = string });
@@ -93,7 +75,7 @@ pub const Function = struct {
     arity: u8 = 0,
     upvalueCount: u8 = 0,
     chnk: *chunk.Chunk,
-    name: []const u8 = "",
+    name: ?*String = null,
 
     pub fn init(allocator: std.mem.Allocator) *Self {
         const f = allocator.create(Self) catch unreachable;
@@ -106,8 +88,11 @@ pub const Function = struct {
         return f;
     }
 
-    pub fn deinit(self: *Self) void {
+    pub fn deinit(self: *Self, vm: *VM) void {
         self.chnk.deinit();
+        if (self.name) |n| {
+            n.deinit(vm);
+        }
         self.allocator.destroy(self);
     }
 
@@ -370,10 +355,10 @@ pub const Value = union(enum) {
                 try writer.print("{s}", .{s.string});
             },
             .function => |f| {
-                if (f.name.len > 0) {
-                    try writer.print("<fn {s}>", .{f.name});
+                if (f.name) |name| {
+                    try writer.print("<fn {s}>", .{name.string});
                 } else {
-                    try writer.print("<script> {s}", .{f.name});
+                    try writer.print("<script>", .{});
                 }
             },
             .native => |_| {
@@ -394,9 +379,9 @@ pub const Value = union(enum) {
     }
 };
 
-fn printFunctionName(writer: anytype, function: Function) !void {
-    if (function.name.len > 0) {
-        try writer.print("<fn {s}>", .{function.name});
+fn printFunctionName(writer: anytype, function: *Function) !void {
+    if (function.name) |name| {
+        try writer.print("<fn {s}>", .{name.string});
     } else {
         try writer.print("<script>", .{});
     }

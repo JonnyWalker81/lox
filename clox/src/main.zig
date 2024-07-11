@@ -14,6 +14,7 @@ pub fn main() !void {
     defer arena.deinit();
 
     var v = vm.VM.init(gpa.allocator());
+    v.setup();
     defer v.deinit();
 
     if (argLen == 1) {

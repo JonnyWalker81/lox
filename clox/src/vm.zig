@@ -40,7 +40,8 @@ pub const CallFrame = struct {
 
     pub fn dump(self: *Self) void {
         std.debug.print("frame: {d}\n", .{self.ip});
-        std.debug.print("  closure: {s}\n", .{self.closure.function.name});
+        const name = if (self.closure.function.name) |name| name.string else "";
+        std.debug.print("  closure: {s}\n", .{name});
         std.debug.print("  code: {any}\n", .{self.closure.function.chnk.code.items});
         std.debug.print("\n", .{});
     }
@@ -71,6 +72,7 @@ pub const VM = struct {
     frameCount: usize = 0,
     // strings: std.StringHashMap(void),
     openUpvalues: ?*value.Upvalue = null,
+    grayStack: std.ArrayList(*value.Obj) = undefined,
 
     pub fn init(allocator: std.mem.Allocator) Self {
         var stack: [StackSize]value.Value = undefined;
@@ -89,17 +91,20 @@ pub const VM = struct {
             .frames = frames,
             // .frames = std.ArrayList(CallFrame).init(allocator),
             // .strings = std.StringHashMap(void).init(allocator),
+            .grayStack = std.ArrayList(*value.Obj).init(allocator),
         };
 
         vm.comp = compiler.Compiler.init(allocator);
-        vm.gcAllocator = memory.GCAllocator.init(allocator, &vm);
-        vm.strings = std.StringHashMap(*value.String).init(allocator);
-        // vm.strings = std.StringHashMap(*value.String).init(vm.gcAllocator.allocator());
-        // vm.globals = std.AutoHashMap(*value.String, value.Value).init(vm.gcAllocator.allocator());
-        vm.globals = std.AutoHashMap(*value.String, value.Value).init(allocator);
 
-        vm.defineNative("clock", clockNative) catch unreachable;
         return vm;
+    }
+
+    pub fn setup(self: *Self) void {
+        self.gcAllocator = memory.GCAllocator.init(self.allocator, self);
+        self.strings = std.StringHashMap(*value.String).init(self.gcAllocator.allocator());
+        self.globals = std.AutoHashMap(*value.String, value.Value).init(self.gcAllocator.allocator());
+
+        self.defineNative("clock", clockNative) catch unreachable;
     }
 
     pub fn deinit(self: *Self) void {
@@ -115,6 +120,7 @@ pub const VM = struct {
 
         self.globals.deinit();
         self.comp.deinit();
+        self.grayStack.deinit();
     }
 
     fn resetStack(self: *Self) void {
@@ -129,10 +135,12 @@ pub const VM = struct {
             const instruction = frame.ip - 1;
             const line = frame.closure.function.chnk.lines.items[instruction];
             std.debug.print("[line {}] in ", .{line});
-            if (frame.closure.function.name.len == 0) {
-                std.debug.print("script\n", .{});
-            } else {
-                std.debug.print("{s}()\n", .{frame.closure.function.name});
+            if (frame.closure.function.name) |s| {
+                if (s.string.len == 0) {
+                    std.debug.print("script\n", .{});
+                } else {
+                    std.debug.print("{s}()\n", .{s.string});
+                }
             }
         }
 
@@ -143,7 +151,6 @@ pub const VM = struct {
     }
 
     fn defineNative(self: *Self, name: []const u8, function: value.NativeFn) !void {
-        std.debug.print("defineNative...\n", .{});
         const s: value.Value = .{ .string = value.String.init(self, name) };
         // defer s.string.deinit(self);
 
@@ -306,7 +313,8 @@ pub const VM = struct {
         for (0..self.frameCount) |i| {
             const frame = &self.frames[i];
             std.debug.print("frame: {d} \n", .{i});
-            std.debug.print("  closure: {s}\n ", .{frame.closure.function.name});
+            const name = if (frame.closure.function.name) |name| name.string else "";
+            std.debug.print("  closure: {s}\n ", .{name});
             std.debug.print("  code: {any} \n", .{frame.closure.function.chnk.code.items});
             std.debug.print("\n", .{});
         }
@@ -417,7 +425,6 @@ pub const VM = struct {
                 },
                 .OpGetGlobal => {
                     const name = self.read_constant();
-                    std.debug.print("OpSetGlobal: {s} -> {*}, {}\n", .{ name.stringValue(), name.asString(), self.globals.count() });
                     if (self.globals.get(name.asString())) |val| {
                         self.push(val);
                     } else {
@@ -427,7 +434,6 @@ pub const VM = struct {
                 },
                 .OpDefineGlobal => {
                     const name = self.read_constant();
-                    std.debug.print("OpDefineGlobal: {s} -> {*}\n", .{ name.stringValue(), name.asString() });
                     const val = self.peek(0);
                     try self.globals.put(name.asString(), val);
                     _ = self.pop();
