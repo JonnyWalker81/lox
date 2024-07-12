@@ -2,7 +2,7 @@ const std = @import("std");
 const chunk = @import("chunk.zig");
 const value = @import("value.zig");
 
-pub fn disassembleChunk(c: *chunk.Chunk, name: []const u8) void {
+pub fn disassembleChunk(c: chunk.Chunk, name: []const u8) void {
     std.debug.print("== {s} ==\n", .{name});
 
     var offset: usize = 0;
@@ -11,7 +11,7 @@ pub fn disassembleChunk(c: *chunk.Chunk, name: []const u8) void {
     }
 }
 
-pub fn disassembleInstruction(c: *chunk.Chunk, offset: usize) usize {
+pub fn disassembleInstruction(c: chunk.Chunk, offset: usize) usize {
     std.debug.print("{d:0>4} ", .{offset});
 
     if (offset > 0) {
@@ -51,7 +51,7 @@ pub fn disassembleInstruction(c: *chunk.Chunk, offset: usize) usize {
             std.debug.print("\n", .{});
 
             const ff = c.constants.items[constant];
-            for (0..ff.function.upvalueCount) |_| {
+            for (0..ff.asObject().asFunction().upvalueCount) |_| {
                 const isLocal: u8 = c.code.items[o];
                 o += 1;
                 const index: u8 = c.code.items[o];
@@ -146,7 +146,7 @@ fn simpleInstruction(name: []const u8, offset: usize) usize {
     return offset + 1;
 }
 
-fn byteInstruction(name: []const u8, c: *chunk.Chunk, offset: usize) usize {
+fn byteInstruction(name: []const u8, c: chunk.Chunk, offset: usize) usize {
     // if (c.code) |code| {
     const slot: u8 = c.code.items[offset + 1];
     std.debug.print("{s} {d:4}\n", .{ name, slot });
@@ -154,7 +154,7 @@ fn byteInstruction(name: []const u8, c: *chunk.Chunk, offset: usize) usize {
     return offset + 2;
 }
 
-fn jumpInstruction(name: []const u8, sign: i32, c: *chunk.Chunk, offset: usize) usize {
+fn jumpInstruction(name: []const u8, sign: i32, c: chunk.Chunk, offset: usize) usize {
     // if (c.code) |code| {
     var jump: u16 = @intCast(@as(u16, c.code.items[offset + 1]) << 8);
     jump |= @intCast(c.code.items[offset + 2]);
@@ -164,7 +164,7 @@ fn jumpInstruction(name: []const u8, sign: i32, c: *chunk.Chunk, offset: usize) 
     return offset + 3;
 }
 
-fn constantInstruction(name: []const u8, c: *chunk.Chunk, offset: usize) usize {
+fn constantInstruction(name: []const u8, c: chunk.Chunk, offset: usize) usize {
     // if (c.code) |code| {
     const constant: u8 = c.code.items[offset + 1];
     std.debug.print("{s} {d:4} '", .{ name, constant });
@@ -187,23 +187,37 @@ pub fn printValue(val: value.Value) void {
         .nil => {
             std.debug.print("nil", .{});
         },
-        .string => |s| {
-            std.debug.print("{s}", .{s});
+        .obj => |o| {
+            printObject(o);
         },
-        .function => |f| {
-            if (f.name) |name| {
+    }
+}
+
+pub fn printObject(obj: *value.Obj) void {
+    switch (obj.type) {
+        .string => {
+            const s = obj.asString();
+            std.debug.print("{s}", .{s.bytes});
+        },
+        .function => {
+            if (obj.asFunction().name) |name| {
                 std.debug.print("<fn {s}>", .{name});
+            } else {
+                std.debug.print("<script>", .{});
             }
         },
         .native => |_| {
             std.debug.print("<native fn>", .{});
         },
-        .closure => |c| {
-            const name = if (c.function.name) |name| name.string else "script";
-            std.debug.print("<closure {s}>", .{name});
+        .closure => {
+            if (obj.asClosure().function.name) |name| {
+                std.debug.print("<fn {s}>", .{name});
+            } else {
+                std.debug.print("<script>", .{});
+            }
         },
         .upvalue => |_| {
-            std.debug.print("<upvalue>", .{});
+            std.debug.print("upvalue", .{});
         },
     }
 }

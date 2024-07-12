@@ -124,7 +124,7 @@ pub const Compiler = struct {
     parser: *Parser,
     compilingChunk: *chunk.Chunk = undefined,
     scnr: *scanner.Scanner = undefined,
-    function: value.Value = undefined,
+    function: *value.Function = undefined,
     funcType: FunctionType,
     locals: [LocalsCount]Local = undefined,
     localCount: usize = 0,
@@ -133,17 +133,19 @@ pub const Compiler = struct {
     enclosing: ?*Compiler = null,
     vm: *VM = undefined,
 
-    pub fn init(allocator: std.mem.Allocator) Compiler {
+    pub fn init(vm: *VM) Compiler {
         var u: [UpvaluesCount]Upvalue = undefined;
         @memset(&u, undefined);
-        const parser = Parser.init(allocator);
+        const parser = Parser.init(vm.allocator);
         var c = Compiler{
-            .arena = std.heap.ArenaAllocator.init(allocator),
+            .arena = std.heap.ArenaAllocator.init(vm.allocator),
             .parser = parser,
+            .function = value.Function.init(vm) catch unreachable,
             .funcType = FunctionType.script,
-            .function = .{ .function = value.Function.init(allocator) },
             .upvalues = u,
         };
+
+        // c.function.name = value.String.init(vm, "") catch unreachable;
 
         // std.debug.print("Compiler init: {any}\n", .{c.function.functionValue()});
 
@@ -157,8 +159,8 @@ pub const Compiler = struct {
         return c;
     }
 
-    pub fn initWithEnclosing(allocator: std.mem.Allocator, enclosing: *Compiler, typ: FunctionType) Compiler {
-        var c = Compiler.init(allocator);
+    pub fn initWithEnclosing(enclosing: *Compiler, typ: FunctionType) Compiler {
+        var c = Compiler.init(enclosing.vm);
         c.vm = enclosing.vm;
         c.parser = enclosing.parser;
         c.scnr = enclosing.scnr;
@@ -168,7 +170,7 @@ pub const Compiler = struct {
         if (typ != .script) {
             const s = c.scnr.source[c.parser.previous.start .. c.parser.previous.start + c.parser.previous.length];
             // c.function.function.name = std.fmt.allocPrint(allocator, "{s}", .{s}) catch unreachable;
-            c.function.function.name = value.String.init(c.vm, s);
+            c.function.name = value.String.init(c.vm, s) catch unreachable;
         }
 
         return c;
@@ -176,16 +178,18 @@ pub const Compiler = struct {
 
     pub fn deinit(self: *Compiler) void {
         self.arena.deinit();
-        self.function.function.deinit(self.vm);
+        self.function.deinit(self.vm);
         self.parser.deinit();
     }
 
-    pub fn compile(self: *Self, source: []const u8, vm: *VM) !value.Value {
+    pub fn compile(self: *Self, source: []const u8, vm: *VM) !*value.Function {
         self.vm = vm;
+
+        self.function.name = value.String.init(vm, "main") catch unreachable;
         self.scnr = scanner.Scanner.init(self.arena.allocator(), source);
         // self.v = v;
-        const c = chunk.Chunk.init(self.arena.allocator());
-        self.compilingChunk = c;
+        var c = chunk.Chunk.init(vm.allocator);
+        self.compilingChunk = &c;
         _ = try self.advance();
         while (!try self.match(scanner.TokenType.eof)) {
             try self.declaration();
@@ -280,14 +284,13 @@ pub const Compiler = struct {
         return @intCast(self.currentChunk().count - 2);
     }
 
-    fn endCompiler(self: *Self) !value.Value {
+    fn endCompiler(self: *Self) !*value.Function {
         try self.emitReturn();
 
         const f = self.function;
 
         if (build_options.debug_print_code and !self.parser.hadError) {
-            const fv = f.functionValue();
-            debug.disassembleChunk(self.currentChunk(), if (fv.name != null) fv.name.?.string else "<script>");
+            debug.disassembleChunk(self.currentChunk().*, if (f.name) |name| name.bytes else "<script>");
         }
 
         // std.debug.print("End compiler: {any}\n", .{func.functionValue()});
@@ -380,10 +383,10 @@ pub const Compiler = struct {
         const prevStart = self.parser.previous.start + 1;
         const prevLength = self.parser.previous.length - 2;
         const s = self.scnr.source[prevStart .. prevStart + prevLength];
-        const strVal: value.Value = .{ .string = value.String.init(self.vm, s) };
+        const strVal = try value.String.init(self.vm, s);
         // const s = try std.fmt.allocPrint(self.arena.allocator(), "{s}", .{strVal.string});
         // try self.v.strings.put(s, void{});
-        try self.emitConstant(strVal);
+        try self.emitConstant(strVal.obj.value());
     }
 
     fn namedVariable(self: *Self, name: scanner.Token, canAssign: bool) !void {
@@ -470,7 +473,8 @@ pub const Compiler = struct {
         // const s = try std.fmt.allocPrint(self.arena.allocator(), "{s}", .{self.scnr.source[name.start .. name.start + name.length]});
         const s = self.scnr.source[name.start .. name.start + name.length];
         // const constant = try self.makeConstant(.{ .string = value.String.init(self.vm.allocator, s, self.vm) });
-        const constant = try self.makeConstant(.{ .string = value.String.init(self.vm, s) });
+        const str = try value.String.init(self.vm, s);
+        const constant = try self.makeConstant(str.obj.value());
         return constant;
     }
 
@@ -534,7 +538,7 @@ pub const Compiler = struct {
     }
 
     fn addUpvalue(self: *Self, index: i32, isLocal: bool) !i32 {
-        const upvalueCount = self.function.functionValue().upvalueCount;
+        const upvalueCount = self.function.upvalueCount;
         // var upvalue = self.function.functionValue().upvalues;
         for (0..upvalueCount) |i| {
             const upvalue = &self.upvalues[i];
@@ -554,8 +558,8 @@ pub const Compiler = struct {
         // upvalue.next = self.function.functionValue().upvalues;
         // self.function.functionValue().upvalues = upvalue;
 
-        self.function.function.incrementUpvalueCount();
-        return self.function.functionValue().upvalueCount - 1;
+        self.function.incrementUpvalueCount();
+        return self.function.upvalueCount - 1;
     }
 
     fn resolveUpvalue(self: *Self, name: scanner.Token) !i32 {
@@ -652,14 +656,14 @@ pub const Compiler = struct {
     }
 
     fn func(self: *Self, typ: FunctionType) !void {
-        var compiler = Compiler.initWithEnclosing(self.arena.allocator(), self, typ);
+        var compiler = Compiler.initWithEnclosing(self, typ);
         try compiler.beginScope();
 
         _ = try compiler.consume(@intFromEnum(scanner.TokenType.left_paren), "Expect '(' after function name.");
 
         if (!compiler.check(.right_paren)) {
-            compiler.function.function.incrementArity();
-            if (compiler.function.functionValue().arity > std.math.maxInt(u8)) {
+            compiler.function.incrementArity();
+            if (compiler.function.arity > std.math.maxInt(u8)) {
                 self.err("Cannot have more than 255 parameters.");
             }
 
@@ -667,8 +671,8 @@ pub const Compiler = struct {
             try compiler.defineVariable(paramConstant);
 
             while (try compiler.match(.comma)) {
-                compiler.function.function.incrementArity();
-                if (compiler.function.functionValue().arity > std.math.maxInt(u8)) {
+                compiler.function.incrementArity();
+                if (compiler.function.arity > std.math.maxInt(u8)) {
                     self.err("Cannot have more than 255 parameters.");
                 }
 
@@ -684,9 +688,9 @@ pub const Compiler = struct {
 
         const f = try compiler.endCompiler();
         @memcpy(&self.upvalues, &compiler.upvalues);
-        try self.emitBytes(@intFromEnum(chunk.OpCode.OpClosure), try self.makeConstant(f));
+        try self.emitBytes(@intFromEnum(chunk.OpCode.OpClosure), try self.makeConstant(f.obj.value()));
 
-        for (0..f.functionValue().upvalueCount) |i| {
+        for (0..f.upvalueCount) |i| {
             const isLocal: u8 = if (compiler.upvalues[i].isLocal) 1 else 0;
             try self.emitByte(isLocal);
             try self.emitByte(@intCast(compiler.upvalues[i].index));
@@ -889,7 +893,10 @@ pub const Compiler = struct {
     }
 
     fn makeConstant(self: *Self, val: value.Value) !u8 {
-        const constant = try self.currentChunk().addConstant(val);
+        self.vm.push(val);
+        try self.currentChunk().constants.append(val);
+        _ = self.vm.pop();
+        const constant = self.currentChunk().constants.items.len - 1;
         if (constant > std.math.maxInt(u8)) {
             self.err("Too many constants in one chunk.");
             return 0;
@@ -916,7 +923,7 @@ pub const Compiler = struct {
     }
 
     fn currentChunk(self: *Self) *chunk.Chunk {
-        return self.function.functionValue().chnk;
+        return &self.function.chnk;
     }
 
     fn errorAtCurrent(self: *Self, message: []const u8) void {

@@ -1,18 +1,18 @@
-fun outer() {
-    var x = "test inner";
-  fun inner() {
-    print x;
-  }
-  inner();
-}
-outer();
+// fun outer() {
+    // var x = "test inner";
+//   fun inner() {
+    // print x;
+  // }
+  // inner();
+// }
+// outer();
 
-fun foo() {}
-print foo; // expect: <fn foo>
+// fun foo() {}
+// print foo; // expect: <fn foo>
 
-print clock; // expect: <native fn>
+// print clock; // expect: <native fn>
 
-var a = "hello ";
-var b = "world!";
-var hello = a + b;
-print hello;
+// var a = "hello ";
+// var b = "world!";
+// var hello = a + b;
+print 123;

@@ -2,19 +2,127 @@ const std = @import("std");
 const memory = @import("memory.zig");
 const chunk = @import("chunk.zig");
 const VM = @import("vm.zig").VM;
+const build_options = @import("build_options");
+const debug = @import("debug.zig");
 
 pub const Obj = struct {
     const Self = @This();
 
+    pub const Type = enum {
+        string,
+        function,
+        native,
+        closure,
+        upvalue,
+    };
+
     isMarked: bool = false,
     next: ?*Self = null,
+    type: Type,
 
-    pub fn init() Self {
-        return .{ .isMarked = false };
+    pub fn create(vm: *VM, comptime T: type, typ: Type) !*Self {
+        const ptr = try vm.allocator.create(T);
+
+        ptr.obj = .{
+            .isMarked = false,
+            .type = typ,
+            .next = vm.objects,
+        };
+
+        vm.objects = &ptr.obj;
+
+        if (build_options.debug_log_gc) {
+            std.debug.print("{} allocate {} for {s}\n", .{ @intFromPtr(&ptr.obj), @sizeOf(T), @typeName(T) });
+        }
+
+        return &ptr.obj;
+    }
+
+    pub fn destroy(self: *Self, vm: *VM) void {
+        // if (build_options.debug_log_gc) {
+        //     std.debug.print("{} free {} {}\n", .{ @intFromPtr(self), self.type, self.value() });
+        // }
+
+        switch (self.type) {
+            .string => {
+                self.asString().deinit(vm);
+            },
+            .function => {
+                self.asFunction().deinit(vm);
+            },
+            .native => {
+                self.asNative().deinit(vm);
+            },
+            .closure => {
+                self.asClosure().deinit(vm);
+            },
+            .upvalue => {
+                self.asUpvalue().deinit(vm);
+            },
+        }
+    }
+
+    // pub fn format(
+    //     self: *Self,
+    //     comptime fmt: []const u8,
+    //     options: std.fmt.FormatOptions,
+    //     writer: anytype,
+    // ) !void {
+    //     _ = fmt;
+    //     _ = options;
+
+    //     switch (self.type) {
+    //         .string => {
+    //             const s = self.asString();
+    //             try writer.print("{s}", .{s.string});
+    //         },
+    //         .function => {
+    //             const f = self.asFunction();
+    //             try printFunctionName(writer, f);
+    //         },
+    //         .native => {
+    //             try writer.print("<native fn>", .{});
+    //         },
+    //         .closure => {
+    //             const c = self.asClosure();
+    //             try printFunctionName(writer, c.function);
+    //         },
+    //         .upvalue => {
+    //             try writer.print("<upvalue>", .{});
+    //         },
+    //     }
+    // }
+
+    pub fn is(self: *Self, typ: Type) bool {
+        return self.type == typ;
     }
 
     pub fn isMarked(self: *Self) bool {
         return self.isMarked;
+    }
+
+    pub fn value(self: *Self) Value {
+        return .{ .obj = self };
+    }
+
+    pub fn asString(self: *Self) *String {
+        return @fieldParentPtr("obj", self);
+    }
+
+    pub fn asFunction(self: *Self) *Function {
+        return @fieldParentPtr("obj", self);
+    }
+
+    pub fn asNative(self: *Self) *Native {
+        return @fieldParentPtr("obj", self);
+    }
+
+    pub fn asClosure(self: *Self) *Closure {
+        return @fieldParentPtr("obj", self);
+    }
+
+    pub fn asUpvalue(self: *Self) *Upvalue {
+        return @fieldParentPtr("obj", self);
     }
 };
 
@@ -22,35 +130,41 @@ pub const String = struct {
     const Self = @This();
 
     obj: Obj,
-    string: []const u8,
+    bytes: []const u8,
 
-    pub fn init(vm: *VM, bytes: []const u8) *Self {
+    pub fn init(vm: *VM, bytes: []const u8) !*Self {
         const interned = vm.strings.get(bytes);
         if (interned) |s| return s;
 
-        const heapChars = vm.allocator.alloc(u8, bytes.len) catch unreachable;
+        const heapChars = try vm.allocator.alloc(u8, bytes.len);
 
         @memcpy(heapChars, bytes);
 
-        return allocate(vm, heapChars) catch unreachable;
+        return try allocate(vm, heapChars);
     }
 
     fn allocate(vm: *VM, bytes: []const u8) !*Self {
-        const string = vm.allocator.create(Self) catch unreachable;
-        string.* = .{
-            .string = bytes,
-            .obj = Obj.init(),
-        };
+        std.debug.print("allocate string...{s}\n", .{bytes});
+        const obj = try Obj.create(vm, Self, .string);
+        const string = obj.asString();
+        string.bytes = bytes;
+        // string.* = .{
+        //     .string = bytes,
+        //     // .obj = obj.*,
+        // };
 
         // Make sure string is visible to the GC during allocation
-        vm.push(.{ .string = string });
+        vm.push(obj.value());
         _ = try vm.strings.put(bytes, string);
         _ = vm.pop();
         return string;
     }
 
     pub fn deinit(self: *Self, vm: *VM) void {
-        vm.allocator.free(self.string);
+        // _ = self;
+        // _ = vm;
+        std.debug.print("deinit string...\n", .{});
+        vm.allocator.free(self.bytes);
         vm.allocator.destroy(self);
     }
 
@@ -63,37 +177,47 @@ pub const String = struct {
         _ = fmt;
         _ = options;
 
-        try writer.print("{s}", .{self.string});
+        try writer.print("{s}", .{self.bytes});
     }
 };
 
 pub const Function = struct {
     const Self = @This();
 
-    allocator: std.mem.Allocator,
     obj: Obj,
     arity: u8 = 0,
     upvalueCount: u8 = 0,
-    chnk: *chunk.Chunk,
+    chnk: chunk.Chunk,
     name: ?*String = null,
 
-    pub fn init(allocator: std.mem.Allocator) *Self {
-        const f = allocator.create(Self) catch unreachable;
+    pub fn init(vm: *VM) !*Self {
+        const obj = try Obj.create(vm, Self, .function);
+        const f = obj.asFunction();
         f.* = .{
-            .allocator = allocator,
-            .chnk = chunk.Chunk.init(allocator),
-            .obj = Obj.init(),
+            .chnk = chunk.Chunk.init(vm.allocator),
+            .obj = obj.*,
+            .name = null,
+            .arity = 0,
+            .upvalueCount = 0,
         };
 
         return f;
     }
 
-    pub fn deinit(self: *Self, vm: *VM) void {
-        self.chnk.deinit();
+    pub fn getName(self: *Self) []const u8 {
         if (self.name) |n| {
-            n.deinit(vm);
+            return n;
         }
-        self.allocator.destroy(self);
+
+        return "";
+    }
+
+    pub fn deinit(self: *Self, vm: *VM) void {
+        // _ = self;
+        // _ = vm;
+        std.debug.print("deinit function...\n", .{});
+        // self.chnk.deinit();
+        vm.allocator.destroy(self);
     }
 
     pub fn incrementArity(self: *Self) void {
@@ -110,197 +234,223 @@ pub const NativeFn = *const fn (u8, []Value) Value;
 pub const Native = struct {
     const Self = @This();
 
-    allocator: std.mem.Allocator,
     obj: Obj,
     function: NativeFn,
 
-    pub fn init(allocator: std.mem.Allocator, function: NativeFn) *Self {
-        const n = allocator.create(Native) catch unreachable;
+    pub fn init(vm: *VM, function: NativeFn) !*Self {
+        const obj = try Obj.create(vm, Self, .native);
+        const n = obj.asNative();
         n.* = .{
-            .allocator = allocator,
             .function = function,
-            .obj = Obj.init(),
+            .obj = obj.*,
         };
 
         return n;
+    }
+
+    pub fn deinit(self: *Self, vm: *VM) void {
+        std.debug.print("deinit native...\n", .{});
+        vm.allocator.destroy(self);
     }
 };
 
 pub const Closure = struct {
     const Self = @This();
 
-    allocator: std.mem.Allocator,
     obj: Obj,
     function: *Function,
     upvalues: []*Upvalue,
 
-    pub fn init(allocator: std.mem.Allocator, function: *Function) *Self {
-        const upvalues = allocator.alloc(*Upvalue, function.upvalueCount) catch unreachable;
+    pub fn init(vm: *VM, function: *Function) !*Self {
+        const upvalues = vm.allocator.alloc(*Upvalue, function.upvalueCount) catch unreachable;
         @memset(upvalues, undefined);
-        const closure = allocator.create(Closure) catch unreachable;
+
+        const obj = try Obj.create(vm, Closure, .closure);
+        const closure = obj.asClosure();
         closure.* = .{
-            .allocator = allocator,
             .function = function,
             .upvalues = upvalues,
-            .obj = Obj.init(),
+            .obj = obj.*,
         };
 
         return closure;
+    }
+
+    pub fn deinit(self: *Self, vm: *VM) void {
+        std.debug.print("deinit closure...\n", .{});
+        vm.allocator.free(self.upvalues);
+        vm.allocator.destroy(self);
     }
 };
 
 pub const Upvalue = struct {
     const Self = @This();
 
-    allocator: std.mem.Allocator,
     // isLocal: bool,
     obj: Obj,
     location: *Value,
     next: ?*Self = null,
-    closed: Value = undefined,
+    closed: ?Value = null,
 
-    pub fn init(allocator: std.mem.Allocator, location: *Value) *Self {
-        const upvalue = allocator.create(Self) catch unreachable;
+    pub fn init(vm: *VM, location: *Value) !*Self {
+        const obj = try Obj.create(vm, Self, .upvalue);
+        const upvalue = obj.asUpvalue();
         upvalue.* = .{
-            .allocator = allocator,
             .location = location,
-            .obj = Obj.init(),
+            .obj = obj.*,
         };
 
         return upvalue;
     }
+
+    pub fn deinit(self: *Self, vm: *VM) void {
+        std.debug.print("deinit upvalue...\n", .{});
+        vm.allocator.destroy(self);
+    }
+
+    pub fn close(self: *Self, value: Value) void {
+        self.closed = value;
+        self.location = &self.closed;
+    }
+
+    pub fn closedValue(self: *Self) Value {
+        return self.closed;
+    }
 };
 
-pub const Value = union(enum) {
+pub const ValueType = enum {
+    nil,
+    bool,
+    number,
+    obj,
+};
+
+pub const Value = union(ValueType) {
     const Self = @This();
 
-    bool: bool,
     nil,
+    bool: bool,
     number: f64,
-    string: *String,
-    function: *Function,
-    native: *Native,
-    closure: *Closure,
-    upvalue: *Upvalue,
+    obj: *Obj,
+    // string: *String,
+    // function: *Function,
+    // native: *Native,
+    // closure: *Closure,
+    // upvalue: *Upvalue,
 
-    pub fn isNil(self: Value) bool {
+    pub fn isNil(self: Self) bool {
         return self == .nil;
     }
 
-    pub fn isBool(self: Value) bool {
-        switch (self) {
-            .bool => return true,
-            else => return false,
-        }
+    pub fn isBool(self: Self) bool {
+        return self == .bool;
     }
 
-    pub fn isNumber(self: Value) bool {
-        switch (self) {
-            .number => return true,
-            else => return false,
-        }
+    pub fn isNumber(self: Self) bool {
+        return self == .number;
     }
 
-    pub fn isString(self: Value) bool {
-        switch (self) {
-            .string => return true,
-            else => return false,
-        }
+    pub fn isObject(self: Self) bool {
+        return self == .obj;
     }
 
-    pub fn isFunction(self: Value) bool {
-        switch (self) {
-            .function => return true,
-            else => return false,
-        }
-    }
+    // pub fn isFunction(self: Self) bool {
+    //     switch (self) {
+    //         .function => return true,
+    //         else => return false,
+    //     }
+    // }
 
-    pub fn isNative(self: Value) bool {
-        switch (self) {
-            .native => return true,
-            else => return false,
-        }
-    }
+    // pub fn isNative(self: Self) bool {
+    //     switch (self) {
+    //         .native => return true,
+    //         else => return false,
+    //     }
+    // }
 
-    pub fn isClosure(self: Value) bool {
-        switch (self) {
-            .closure => return true,
-            else => return false,
-        }
-    }
+    // pub fn isClosure(self: Self) bool {
+    //     switch (self) {
+    //         .closure => return true,
+    //         else => return false,
+    //     }
+    // }
 
-    pub fn isObject(self: Value) bool {
-        switch (self) {
-            .string => return true,
-            .function => return true,
-            .native => return true,
-            .closure => return true,
-            .upvalue => return true,
-            else => return false,
-        }
-    }
+    // pub fn isObject(self: Self) bool {
+    //     switch (self) {
+    //         .string => return true,
+    //         .function => return true,
+    //         .native => return true,
+    //         .closure => return true,
+    //         .upvalue => return true,
+    //         else => return false,
+    //     }
+    // }
 
-    pub fn boolValue(self: Value) bool {
+    pub fn asBool(self: Self) bool {
         switch (self) {
             .bool => |b| return b,
-            else => return false,
+            else => std.debug.panic("expected bool, not a bool, got: {s}", .{@tagName(self)}),
         }
     }
 
-    pub fn numberValue(self: Value) f64 {
+    pub fn asNumber(self: Self) f64 {
         switch (self) {
             .number => |n| return n,
-            else => return 0.0,
+            else => std.debug.panic("expected number, not a number, got: {s}", .{@tagName(self)}),
         }
     }
 
-    pub fn stringValue(self: Value) []const u8 {
+    pub fn asObject(self: Self) *Obj {
         switch (self) {
-            .string => |s| return s.string,
-            else => return "",
+            .obj => |o| return o,
+            else => std.debug.panic("expected object, not a object, got: {s}", .{@tagName(self)}),
         }
     }
 
-    pub fn functionValue(self: Value) *Function {
-        switch (self) {
-            .function => |f| return f,
-            else => @panic("expected function, not a function."),
-        }
+    pub fn nil() Self {
+        return .nil;
     }
 
-    pub fn nativeValue(self: Value) Native {
-        switch (self) {
-            .native => |n| return n,
-            else => @panic("expected native, not a native."),
-        }
-    }
+    // pub fn functionValue(self: Self) *Function {
+    //     switch (self) {
+    //         .function => |f| return f,
+    //         else => @panic("expected function, not a function."),
+    //     }
+    // }
 
-    pub fn closureValue(self: Value) Closure {
-        switch (self) {
-            .closure => |c| return c,
-            else => @panic("expected closure, not a closure."),
-        }
-    }
+    // pub fn nativeValue(self: Self) Native {
+    //     switch (self) {
+    //         .native => |n| return n,
+    //         else => @panic("expected native, not a native."),
+    //     }
+    // }
 
-    pub fn asString(self: Value) *String {
-        switch (self) {
-            .string => |s| return @fieldParentPtr("obj", &s.obj),
-            else => @panic("expected string, not a string."),
-        }
-    }
+    // pub fn closureValue(self: Self) Closure {
+    //     switch (self) {
+    //         .closure => |c| return c,
+    //         else => @panic("expected closure, not a closure."),
+    //     }
+    // }
 
-    pub fn asObject(self: Value) *Obj {
-        switch (self) {
-            .string => |s| return &s.obj,
-            .function => |f| return &f.obj,
-            .native => |n| return &n.obj,
-            .closure => |c| return &c.obj,
-            .upvalue => |u| return &u.obj,
-            else => @panic("expected object, not a object."),
-        }
-    }
+    // pub fn asString(self: Self) *String {
+    //     switch (self) {
+    //         .string => |s| return @fieldParentPtr("obj", &s.obj),
+    //         else => @panic("expected string, not a string."),
+    //     }
+    // }
 
-    pub fn isFalsey(self: Value) bool {
+    // pub fn asObject(self: Self) *Obj {
+    //     switch (self) {
+    //         .string => |s| return &s.obj,
+    //         .function => |f| return &f.obj,
+    //         .native => |n| return &n.obj,
+    //         .closure => |c| return &c.obj,
+    //         .upvalue => |u| return &u.obj,
+    //         else => @panic("expected object, not a object."),
+    //     }
+    // }
+
+    pub fn isFalsey(self: Self) bool {
         switch (self) {
             .bool => |b| return !b,
             .nil => return true,
@@ -308,21 +458,25 @@ pub const Value = union(enum) {
         }
     }
 
-    pub fn equalTo(self: Value, other: Value) bool {
-        if (self.isNil()) {
+    pub fn equalTo(self: Self, other: Self) bool {
+        if (self.isNil() and other.isNil()) {
             return true;
         }
 
         if (self.isNumber() and other.isNumber()) {
-            return self.numberValue() == other.numberValue();
+            return self.asNumber() == other.asNumber();
         }
 
         if (self.isBool() and other.isBool()) {
-            return self.boolValue() == other.boolValue();
+            return self.asBool() == other.asBool();
         }
 
-        if (self.isString() and other.isString()) {
-            return std.mem.eql(u8, self.stringValue(), other.stringValue());
+        // if (self.isString() and other.isString()) {
+        //     return std.mem.eql(u8, self.stringValue(), other.stringValue());
+        // }
+
+        if (self.isObject() and other.isObject()) {
+            return self.asObject() == other.asObject();
         }
 
         return false;
@@ -351,37 +505,40 @@ pub const Value = union(enum) {
             .number => |n| {
                 try writer.print("{d}", .{n});
             },
-            .string => |s| {
-                try writer.print("{s}", .{s.string});
-            },
-            .function => |f| {
-                if (f.name) |name| {
-                    try writer.print("<fn {s}>", .{name.string});
-                } else {
-                    try writer.print("<script>", .{});
-                }
-            },
-            .native => |_| {
-                try writer.print("<native fn>", .{});
-            },
-            .closure => |c| {
-                try printFunctionName(writer, c.function);
-                // if (c.function.name.len > 0) {
-                //     try writer.print("<fn {s}>", .{c.function.name});
-                // } else {
-                //     try writer.print("<script>", .{});
-                // }
-            },
-            .upvalue => |_| {
-                try writer.print("<upvalue>", .{});
+            .obj => |o| {
+                try printObject(writer, o);
             },
         }
     }
 };
 
+fn printObject(writer: anytype, obj: *Obj) !void {
+    switch (obj.type) {
+        .string => {
+            const s = obj.asString();
+            try writer.print("{s}", .{s.bytes});
+        },
+        .function => {
+            const f = obj.asFunction();
+            try printFunctionName(writer, f);
+        },
+        .native => {
+            try writer.print("<native fn>", .{});
+        },
+        .closure => {
+            const c = obj.asClosure();
+            try printFunctionName(writer, c.function);
+        },
+        .upvalue => {
+            try writer.print("<upvalue>", .{});
+        },
+    }
+}
+
 fn printFunctionName(writer: anytype, function: *Function) !void {
+    // std.debug.print("function name: {any}\n", .{function});
     if (function.name) |name| {
-        try writer.print("<fn {s}>", .{name.string});
+        try writer.print("<fn {s}>", .{name.bytes});
     } else {
         try writer.print("<script>", .{});
     }

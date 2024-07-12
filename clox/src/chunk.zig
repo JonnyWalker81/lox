@@ -39,38 +39,34 @@ pub const OpCode = enum(u8) {
 pub const Chunk = struct {
     const Self = @This();
 
-    allocator: std.mem.Allocator,
-    arena: std.heap.ArenaAllocator,
+    // allocator: std.mem.Allocator,
+    // arena: std.heap.ArenaAllocator,
     count: usize = 0,
-    capacity: usize = 0,
+    // capacity: usize = 0,
     // code: ?[]u8 = null,
     code: std.ArrayList(u8),
     // constants: *value.ValueArray,
     constants: std.ArrayList(value.Value),
     lines: std.ArrayList(usize),
 
-    pub fn init(allocator: std.mem.Allocator) *Chunk {
-        const arena = std.heap.ArenaAllocator.init(allocator);
-        const chunk = allocator.create(Chunk) catch unreachable;
+    pub fn init(allocator: std.mem.Allocator) Chunk {
+        // const arena = std.heap.ArenaAllocator.init(allocator);
+        // const chunk = allocator.create(Chunk) catch unreachable;
         // const constants = value.ValueArray.init(allocator);
-        const constants = std.ArrayList(value.Value).init(allocator);
-        chunk.* = .{
-            .allocator = allocator,
-            .arena = arena,
-            .constants = constants,
+        return .{
+            .constants = std.ArrayList(value.Value).init(allocator),
             .code = std.ArrayList(u8).init(allocator),
             .lines = std.ArrayList(usize).init(allocator),
         };
-
-        return chunk;
     }
 
     pub fn deinit(self: *Self) void {
-        self.arena.deinit();
-        self.constants.deinit();
-        self.code.deinit();
-        self.lines.deinit();
-        self.allocator.destroy(self);
+        _ = self;
+        // self.arena.deinit();
+        // self.code.deinit();
+        // self.lines.deinit();
+        // self.constants.deinit();
+        // self.allocator.destroy(self);
     }
 
     pub fn writeChunk(self: *Self, byte: u8, line: usize) !void {
@@ -97,18 +93,11 @@ pub const Chunk = struct {
         self.count += 1;
     }
 
-    pub fn addConstant(self: *Self, val: value.Value) !usize {
-        // try self.constants.write(val);
-        // return self.constants.count - 1;
-        try self.constants.append(val);
-        return self.constants.items.len - 1;
-    }
-
-    pub fn freeChunk(self: *Self) void {
-        self.count = 0;
-        self.capacity = 0;
-        self.code = null;
-    }
+    // pub fn freeChunk(self: *Self) void {
+    //     self.count = 0;
+    //     self.capacity = 0;
+    //     self.code = null;
+    // }
 };
 
 var test_allocator = std.testing.allocator;

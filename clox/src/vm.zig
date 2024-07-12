@@ -40,7 +40,7 @@ pub const CallFrame = struct {
 
     pub fn dump(self: *Self) void {
         std.debug.print("frame: {d}\n", .{self.ip});
-        const name = if (self.closure.function.name) |name| name.string else "";
+        const name = if (self.closure.function.name) |name| name.bytes else "";
         std.debug.print("  closure: {s}\n", .{name});
         std.debug.print("  code: {any}\n", .{self.closure.function.chnk.code.items});
         std.debug.print("\n", .{});
@@ -57,7 +57,6 @@ pub const VM = struct {
     const Self = @This();
 
     allocator: std.mem.Allocator = undefined,
-    arena: std.heap.ArenaAllocator,
     gcAllocator: memory.GCAllocator = undefined,
     // chnk: ?*chunk.Chunk = null,
     // ip: usize = 0,
@@ -72,6 +71,7 @@ pub const VM = struct {
     frameCount: usize = 0,
     // strings: std.StringHashMap(void),
     openUpvalues: ?*value.Upvalue = null,
+    objects: ?*value.Obj = null,
     grayStack: std.ArrayList(*value.Obj) = undefined,
 
     pub fn init(allocator: std.mem.Allocator) Self {
@@ -81,34 +81,31 @@ pub const VM = struct {
         var frames: [FrameMax]CallFrame = undefined;
         @memset(&frames, undefined);
 
-        const arena = std.heap.ArenaAllocator.init(allocator);
         // const vm = allocator.create(Self) catch unreachable;
-        var vm: VM = .{
+        const vm: VM = .{
             .allocator = allocator,
-            .arena = arena,
             .stack = stack,
             // .globals = std.AutoHashMap(*value.String, value.Value).init(allocator),
             .frames = frames,
             // .frames = std.ArrayList(CallFrame).init(allocator),
             // .strings = std.StringHashMap(void).init(allocator),
-            .grayStack = std.ArrayList(*value.Obj).init(allocator),
+            // .grayStack = std.ArrayList(*value.Obj).init(allocator),
         };
-
-        vm.comp = compiler.Compiler.init(allocator);
 
         return vm;
     }
 
     pub fn setup(self: *Self) void {
+        self.comp = compiler.Compiler.init(self);
         self.gcAllocator = memory.GCAllocator.init(self.allocator, self);
+        self.grayStack = std.ArrayList(*value.Obj).init(self.allocator);
         self.strings = std.StringHashMap(*value.String).init(self.gcAllocator.allocator());
         self.globals = std.AutoHashMap(*value.String, value.Value).init(self.gcAllocator.allocator());
 
-        self.defineNative("clock", clockNative) catch unreachable;
+        // self.defineNative("clock", clockNative) catch unreachable;
     }
 
     pub fn deinit(self: *Self) void {
-        self.arena.deinit();
         // if (self.chnk) |c| {
         //     c.deinit();
         // }
@@ -121,6 +118,20 @@ pub const VM = struct {
         self.globals.deinit();
         self.comp.deinit();
         self.grayStack.deinit();
+
+        self.freeObjects();
+    }
+
+    fn freeObjects(self: *Self) void {
+        var obj = self.objects;
+        while (obj) |o| {
+            std.debug.print("freeing object...\n", .{});
+            const next = o.next;
+            o.destroy(self);
+            obj = next;
+        }
+
+        // self.grayStack.deinit();
     }
 
     fn resetStack(self: *Self) void {
@@ -136,10 +147,10 @@ pub const VM = struct {
             const line = frame.closure.function.chnk.lines.items[instruction];
             std.debug.print("[line {}] in ", .{line});
             if (frame.closure.function.name) |s| {
-                if (s.string.len == 0) {
+                if (s.bytes.len == 0) {
                     std.debug.print("script\n", .{});
                 } else {
-                    std.debug.print("{s}()\n", .{s.string});
+                    std.debug.print("{s}()\n", .{s.bytes});
                 }
             }
         }
@@ -151,13 +162,14 @@ pub const VM = struct {
     }
 
     fn defineNative(self: *Self, name: []const u8, function: value.NativeFn) !void {
-        const s: value.Value = .{ .string = value.String.init(self, name) };
+        const s = try value.String.init(self, name);
         // defer s.string.deinit(self);
 
-        self.push(s);
-        self.push(.{ .native = value.Native.init(self.arena.allocator(), function) });
+        self.push(s.obj.value());
+        const native = try value.Native.init(self, function);
+        self.push(native.obj.value());
         // const val = .{ .native = .{ .function = function } };
-        try self.globals.put(self.stack[0].asString(), self.stack[1]);
+        try self.globals.put(self.stack[0].asObject().asString(), self.stack[1]);
         _ = self.pop();
         _ = self.pop();
     }
@@ -177,7 +189,7 @@ pub const VM = struct {
     }
 
     fn callValue(self: *Self, callee: value.Value, argCount: u8) bool {
-        switch (callee) {
+        switch (callee.asObject().type) {
             // .function => |f| {
             //     // if (f.arity != argCount) {
             //     //     self.runtimeError("Expected {d} arguments but got {d}", .{ f.arity, argCount });
@@ -185,8 +197,8 @@ pub const VM = struct {
             //     // }
             //     return self.call(f, argCount);
             // },
-            .native => |n| {
-                const native = n.function;
+            .native => {
+                const native = callee.asObject().asNative().function;
                 // if (result.isError()) {
                 //     self.runtimeError("Error in native function", .{});
                 //     return false;
@@ -197,7 +209,7 @@ pub const VM = struct {
                 return true;
             },
             .closure => {
-                const closure = callee.closure;
+                const closure = callee.asObject().asClosure();
                 return self.call(closure, argCount);
             },
             else => {
@@ -207,7 +219,7 @@ pub const VM = struct {
         }
     }
 
-    fn captureValue(self: *Self, local: *value.Value) *value.Upvalue {
+    fn captureValue(self: *Self, local: *value.Value) !*value.Upvalue {
         var prevUpvalue: ?*value.Upvalue = null;
         var upvalue = self.openUpvalues;
         while (upvalue != null and @intFromPtr(upvalue.?.location) > @intFromPtr(local)) : (upvalue = upvalue.?.next) {
@@ -221,7 +233,7 @@ pub const VM = struct {
             return upvalue.?;
         }
 
-        const createdUpvalue = value.Upvalue.init(self.arena.allocator(), local);
+        const createdUpvalue = try value.Upvalue.init(self, local);
         createdUpvalue.next = upvalue;
 
         if (prevUpvalue == null) {
@@ -237,7 +249,7 @@ pub const VM = struct {
         while (self.openUpvalues != null and @intFromPtr(self.openUpvalues.?.location) >= @intFromPtr(last)) {
             const upvalue = self.openUpvalues.?;
             upvalue.closed = upvalue.location.*;
-            upvalue.location = &upvalue.closed;
+            upvalue.location = &upvalue.closed.?;
             self.openUpvalues = upvalue.next;
         }
     }
@@ -292,13 +304,13 @@ pub const VM = struct {
     }
 
     pub fn interpret(self: *Self, source: []const u8) !InterpretResult {
-        const c = try self.comp.compile(source, self);
+        const f = try self.comp.compile(source, self);
 
-        self.push(c);
+        self.push(f.obj.value());
 
-        const closure = value.Closure.init(self.arena.allocator(), c.function);
+        const closure = try value.Closure.init(self, f);
         _ = self.pop();
-        self.push(.{ .closure = closure });
+        self.push(closure.obj.value());
 
         _ = self.call(closure, 0);
         // frame.function = c.functionValue();
@@ -313,7 +325,7 @@ pub const VM = struct {
         for (0..self.frameCount) |i| {
             const frame = &self.frames[i];
             std.debug.print("frame: {d} \n", .{i});
-            const name = if (frame.closure.function.name) |name| name.string else "";
+            const name = if (frame.closure.function.name) |name| name.bytes else "";
             std.debug.print("  closure: {s}\n ", .{name});
             std.debug.print("  code: {any} \n", .{frame.closure.function.chnk.code.items});
             std.debug.print("\n", .{});
@@ -365,16 +377,18 @@ pub const VM = struct {
                 },
                 .OpClosure => {
                     const function = self.read_constant();
-                    const closure = .{ .closure = value.Closure.init(self.arena.allocator(), function.function) };
-                    self.push(closure);
-                    for (0..closure.closure.upvalues.len) |i| {
+                    const ff = function.asObject().asFunction();
+                    std.debug.print("OpClosure: {s}, {any}, {any}", .{ function, ff, ff.name });
+                    const closure = try value.Closure.init(self, function.asObject().asFunction());
+                    self.push(closure.obj.value());
+                    for (0..closure.upvalues.len) |i| {
                         const isLocal = self.readByte();
                         const index = self.readByte();
                         if (isLocal == 1) {
-                            closure.closure.upvalues[i] = self.captureValue(&f.slots[f.slot + index]);
+                            closure.upvalues[i] = try self.captureValue(&f.slots[f.slot + index]);
                         } else {
                             // closure.closure.upvalues[i] = frame.closure.upvalues[index];
-                            closure.closure.upvalues[i] = f.closure.upvalues[index];
+                            closure.upvalues[i] = f.closure.upvalues[index];
                         }
                     }
                     // for (0..closure.function.arity) |i| {
@@ -425,17 +439,17 @@ pub const VM = struct {
                 },
                 .OpGetGlobal => {
                     const name = self.read_constant();
-                    if (self.globals.get(name.asString())) |val| {
+                    if (self.globals.get(name.asObject().asString())) |val| {
                         self.push(val);
                     } else {
-                        self.runtimeError("GetGobal: Undefined variable '{s}'", .{name.stringValue()});
+                        self.runtimeError("GetGobal: Undefined variable '{s}'", .{name.asObject().asString()});
                         return InterpreterError.runtime_error;
                     }
                 },
                 .OpDefineGlobal => {
                     const name = self.read_constant();
                     const val = self.peek(0);
-                    try self.globals.put(name.asString(), val);
+                    try self.globals.put(name.asObject().asString(), val);
                     _ = self.pop();
                     // try self.strings.put(name.stringValue(), void{});
                     // debug.printValue(name);
@@ -443,11 +457,11 @@ pub const VM = struct {
                 },
                 .OpSetGlobal => {
                     const name = self.read_constant();
-                    if (self.globals.contains(name.asString())) {
+                    if (self.globals.contains(name.asObject().asString())) {
                         const val = self.peek(0);
-                        try self.globals.put(name.asString(), val);
+                        try self.globals.put(name.asObject().asString(), val);
                     } else {
-                        self.runtimeError("SetGlobal: Undefined variable '{s}'", .{name.stringValue()});
+                        self.runtimeError("SetGlobal: Undefined variable '{s}'", .{name.asObject().asString()});
                         return InterpreterError.runtime_error;
                     }
                 },
@@ -502,24 +516,24 @@ pub const VM = struct {
         const a = self.pop();
         switch (op) {
             .greater => {
-                const result = .{ .bool = a.numberValue() > b.numberValue() };
+                const result = .{ .bool = a.asNumber() > b.asNumber() };
                 self.push(result);
             },
             .less => {
-                const result = .{ .bool = a.numberValue() < b.numberValue() };
+                const result = .{ .bool = a.asNumber() < b.asNumber() };
                 self.push(result);
             },
             .add => {
                 if (a.isNumber() and b.isNumber()) {
-                    const result = .{ .number = a.numberValue() + b.numberValue() };
+                    const result = .{ .number = a.asNumber() + b.asNumber() };
                     self.push(result);
                     return;
-                } else if (a.isString() and b.isString()) {
-                    const s = try std.fmt.allocPrint(self.allocator, "{s}{s}", .{ a.stringValue(), b.stringValue() });
+                } else if (a.asObject().is(.string) and b.asObject().is(.string)) {
+                    const s = try std.fmt.allocPrint(self.allocator, "{s}{s}", .{ a.asObject().asString(), b.asObject().asString() });
                     // try self.strings.put(s, void{});
                     // const result = .{ .string = value.String.init(self.arena.allocator(), s) };
-                    const result = .{ .string = value.String.init(self, s) };
-                    self.push(result);
+                    const result = try value.String.init(self, s);
+                    self.push(result.obj.value());
                     return;
                 }
 
@@ -527,15 +541,15 @@ pub const VM = struct {
                 return InterpreterError.runtime_error;
             },
             .subtract => {
-                const result = .{ .number = a.numberValue() - b.numberValue() };
+                const result = .{ .number = a.asNumber() - b.asNumber() };
                 self.push(result);
             },
             .multiply => {
-                const result = .{ .number = a.numberValue() * b.numberValue() };
+                const result = .{ .number = a.asNumber() * b.asNumber() };
                 self.push(result);
             },
             .divide => {
-                const result = .{ .number = a.numberValue() / b.numberValue() };
+                const result = .{ .number = a.asNumber() / b.asNumber() };
                 self.push(result);
             },
         }
@@ -590,3 +604,18 @@ pub const VM = struct {
         return frame.closure.function.chnk.constants.items[b];
     }
 };
+
+const test_allocator = std.testing.allocator;
+
+test "vm" {
+    var vm = VM.init(test_allocator);
+    vm.setup();
+    defer vm.deinit();
+
+    const input =
+        \\
+        \\print 123;
+    ;
+
+    _ = try vm.interpret(input);
+}

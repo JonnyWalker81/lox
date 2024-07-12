@@ -23,7 +23,11 @@ pub const GCAllocator = struct {
     pub fn allocator(self: *Self) std.mem.Allocator {
         return .{
             .ptr = self,
-            .vtable = &vtable,
+            .vtable = &.{
+                .alloc = alloc,
+                .resize = resize,
+                .free = free,
+            },
         };
     }
 
@@ -75,6 +79,7 @@ pub const GCAllocator = struct {
         }
 
         self.markRoots();
+        self.traceReferences();
 
         if (build_options.debug_log_gc) {
             std.debug.print("-- gc begin\n", .{});
@@ -89,35 +94,74 @@ pub const GCAllocator = struct {
         self.markTable(&self.vm.globals);
 
         for (0..self.vm.frameCount) |i| {
-            self.markObject(@constCast(&.{ .closure = self.vm.frames[i].closure }));
+            self.markObject(&self.vm.frames[i].closure.obj);
         }
 
         var upvalue = self.vm.openUpvalues;
         while (upvalue != null) : (upvalue = upvalue.?.next) {
-            self.markObject(@constCast(&.{ .upvalue = upvalue.? }));
+            self.markObject(&upvalue.?.obj);
         }
     }
 
     fn traceReferences(self: *Self) void {
-        while (self.vm.grayStack.len > 0) : (self.vm.grayStack.pop()) {
-            const obj = self.vm.grayStack[self.vm.grayStack.len - 1];
-            self.blackenObject(obj);
+        while (self.vm.grayStack.items.len > 0) : (_ = self.vm.grayStack.pop()) {
+            const val = self.vm.grayStack.items[self.vm.grayStack.items.len - 1];
+            self.blackenObject(val);
         }
     }
 
     fn markValue(self: *Self, v: value.Value) void {
         if (v.isObject()) {
-            const obj = @constCast(&v);
-            self.markObject(obj);
+            self.markObject(v.asObject());
         }
     }
 
-    fn markObject(self: *Self, v: *value.Value) void {
-        var obj = v.asObject();
+    fn markArray(self: *Self, array: []value.Value) void {
+        for (array) |val| {
+            self.markValue(val);
+        }
+    }
+
+    fn blackenObject(self: *Self, obj: *value.Obj) void {
+        if (build_options.debug_log_gc) {
+            std.debug.print("{*} blacken ", .{obj});
+            debug.printObject(obj);
+            std.debug.print("\n", .{});
+        }
+
+        switch (obj.type) {
+            .upvalue => {
+                if (obj.asUpvalue().closed) |c| {
+                    self.markValue(c);
+                }
+            },
+            .function => {
+                const f = obj.asFunction();
+                if (f.name) |name| {
+                    self.markObject(&name.obj);
+                }
+                // self.markValue(f.name);
+                self.markArray(f.chnk.constants.items);
+            },
+            .closure => {
+                const c = obj.asClosure();
+                self.markObject(&c.function.obj);
+                for (c.upvalues) |up| {
+                    self.markObject(&up.obj);
+                }
+            },
+            else => {},
+        }
+    }
+
+    fn markObject(self: *Self, obj: *value.Obj) void {
+        if (obj.isMarked) {
+            return;
+        }
 
         if (build_options.debug_log_gc) {
             std.debug.print("{*} mark ", .{obj});
-            debug.printValue(v.*);
+            debug.printObject(obj);
             std.debug.print("\n", .{});
         }
 
@@ -129,7 +173,7 @@ pub const GCAllocator = struct {
     fn markTable(self: *Self, table: *std.AutoHashMap(*value.String, value.Value)) void {
         var iter = table.iterator();
         while (iter.next()) |entry| {
-            self.markObject(@constCast(&.{ .string = @constCast(entry.key_ptr.*) }));
+            self.markObject(&entry.key_ptr.*.obj);
             self.markValue(entry.value_ptr.*);
         }
     }
