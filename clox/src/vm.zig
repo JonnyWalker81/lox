@@ -96,7 +96,7 @@ pub const VM = struct {
     }
 
     pub fn setup(self: *Self) void {
-        self.comp = compiler.Compiler.init(self);
+        self.comp = compiler.Compiler.init(self, null, .script);
         self.gcAllocator = memory.GCAllocator.init(self.allocator, self);
         self.grayStack = std.ArrayList(*value.Obj).init(self.allocator);
         self.strings = std.StringHashMap(*value.String).init(self.gcAllocator.allocator());
@@ -124,6 +124,7 @@ pub const VM = struct {
     }
 
     fn freeObjects(self: *Self) void {
+        std.debug.print("freeObjects\n", .{});
         var obj = self.objects;
         while (obj) |o| {
             const next = o.next;
@@ -185,10 +186,12 @@ pub const VM = struct {
     }
 
     fn peek(self: *Self, distance: usize) value.Value {
+        std.debug.print("stackTop: {d}\n", .{self.stackTop});
         return self.stack[self.stackTop - 1 - distance];
     }
 
     fn callValue(self: *Self, callee: value.Value, argCount: u8) bool {
+        std.debug.print("callee: {any}\n", .{callee});
         switch (callee.asObject().type) {
             // .function => |f| {
             //     // if (f.arity != argCount) {
@@ -368,7 +371,9 @@ pub const VM = struct {
                     f.ip -= offset;
                 },
                 .OpCall => {
+                    std.debug.print("frame ip: {d}\n", .{f.ip});
                     const argCount = self.readByte();
+                    std.debug.print("arg count: {d}\n", .{argCount});
                     const callee = self.peek(argCount);
                     if (!self.callValue(callee, argCount)) {
                         return InterpreterError.runtime_error;
@@ -510,8 +515,8 @@ pub const VM = struct {
             return InterpreterError.runtime_error;
         }
 
-        const b = self.pop();
-        const a = self.pop();
+        const b = self.peek(0);
+        const a = self.peek(1);
         switch (op) {
             .greater => {
                 const result = .{ .bool = a.asNumber() > b.asNumber() };
@@ -530,6 +535,8 @@ pub const VM = struct {
                     const s = try std.fmt.allocPrint(self.allocator, "{s}{s}", .{ a.asObject().asString(), b.asObject().asString() });
                     defer self.allocator.free(s);
                     const result = try value.String.init(self, s);
+                    _ = self.pop();
+                    _ = self.pop();
                     self.push(result.obj.value());
                     return;
                 }

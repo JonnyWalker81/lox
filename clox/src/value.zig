@@ -150,20 +150,24 @@ pub const Function = struct {
     obj: Obj,
     arity: u8 = 0,
     upvalueCount: u8 = 0,
-    chnk: chunk.Chunk,
+    chnk: chunk.Chunk = undefined,
     name: ?*String = null,
 
     pub fn init(vm: *VM) !*Self {
         const obj = try Obj.create(vm, Self, .function);
+        // vm.push(obj.value());
         const f = obj.asFunction();
         f.* = .{
-            .chnk = chunk.Chunk.init(vm.allocator),
+            // .chnk = chunk.Chunk.init(vm.allocator),
             .obj = obj.*,
             .name = null,
             .arity = 0,
             .upvalueCount = 0,
         };
 
+        // f.chnk = chunk.Chunk.init(vm.gcAllocator.allocator());
+        f.chnk = chunk.Chunk.init(vm.allocator);
+        // _ = vm.pop();
         return f;
     }
 

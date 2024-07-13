@@ -10,6 +10,10 @@ pub const GCAllocator = struct {
 
     backingAllocator: std.mem.Allocator,
     vm: *VM,
+    bytesAllocated: usize = 0,
+    nextGC: usize = 1024 * 1024,
+
+    const HEAP_GROW_FACTOR = 2;
 
     const vtable: std.mem.Allocator.VTable = .{ .alloc = alloc, .resize = resize, .free = free };
 
@@ -40,8 +44,13 @@ pub const GCAllocator = struct {
         std.debug.print("alloc\n", .{});
         const self: *Self = @ptrCast(@alignCast(ctx));
 
-        self.collectGarbage() catch @panic("gc failed");
-        return self.backingAllocator.rawAlloc(len, ptr_align, ra);
+        if ((self.bytesAllocated + len > self.nextGC) or build_options.debug_stress_gc) {
+            self.collectGarbage() catch @panic("gc failed");
+        }
+
+        const result = self.backingAllocator.rawAlloc(len, ptr_align, ra);
+        self.bytesAllocated += len;
+        return result;
     }
 
     fn resize(
@@ -53,13 +62,24 @@ pub const GCAllocator = struct {
     ) bool {
         std.debug.print("resize\n", .{});
         const self: *Self = @ptrCast(@alignCast(ctx));
-        const size = self.backingAllocator.rawResize(buf, log2_buf_align, new_len, ra);
 
         if (new_len > buf.len) {
-            self.collectGarbage() catch @panic("gc failed");
+            if ((self.bytesAllocated + new_len - buf.len > self.nextGC) or build_options.debug_stress_gc) {
+                self.collectGarbage() catch @panic("gc failed");
+            }
         }
 
-        return size;
+        if (self.backingAllocator.rawResize(buf, log2_buf_align, new_len, ra)) {
+            if (new_len > buf.len) {
+                self.bytesAllocated += new_len - buf.len;
+            } else {
+                self.bytesAllocated -= buf.len - new_len;
+            }
+
+            return true;
+        } else {
+            return false;
+        }
     }
 
     fn free(
@@ -71,19 +91,25 @@ pub const GCAllocator = struct {
         std.debug.print("free\n", .{});
         const self: *Self = @ptrCast(@alignCast(ctx));
         self.backingAllocator.rawFree(buf, log2_buf_align, ra);
+        self.bytesAllocated -= buf.len;
     }
 
     pub fn collectGarbage(self: *Self) !void {
+        const before = self.bytesAllocated;
         if (build_options.debug_log_gc) {
             std.debug.print("-- gc begin\n", .{});
         }
 
         self.markRoots();
         self.traceReferences();
+        self.removeWhiteStrings(&self.vm.strings);
         self.sweep();
+
+        self.nextGC = self.bytesAllocated * HEAP_GROW_FACTOR;
 
         if (build_options.debug_log_gc) {
             std.debug.print("-- gc end\n", .{});
+            std.debug.print("      collected {} bytes (from {} to {})\n", .{ before - self.bytesAllocated, before, self.bytesAllocated });
         }
     }
 
@@ -113,6 +139,17 @@ pub const GCAllocator = struct {
         }
     }
 
+    fn removeWhiteStrings(self: *Self, table: *std.StringHashMap(*value.String)) void {
+        var iter = table.iterator();
+        while (iter.next()) |entry| {
+            const key = entry.key_ptr.*;
+            const val = entry.value_ptr.*;
+            if (!val.obj.isMarked) {
+                _ = self.vm.strings.remove(key);
+            }
+        }
+    }
+
     fn sweep(self: *Self) void {
         var previous: ?*value.Obj = null;
         var object = self.vm.objects;
@@ -130,6 +167,17 @@ pub const GCAllocator = struct {
                     self.vm.objects = object;
                 }
 
+                // std.debug.print("free object: {}\n", .{unreached.type});
+                // if (unreached.type == .function) {
+                //     const f = unreached.asFunction();
+                //     if (f.name) |name| {
+                //         if (std.mem.eql(u8, name.bytes, "makeClosure")) {
+                //             std.debug.print("skip free function: {any}\n", .{unreached.asFunction().name});
+                //             continue;
+                //         }
+                //     }
+                //     // std.debug.print("free function: {any}\n", .{unreached.asFunction().name});
+                // }
                 unreached.destroy(self.vm);
             }
         }
@@ -174,9 +222,7 @@ pub const GCAllocator = struct {
                     self.markObject(&up.obj);
                 }
             },
-            else => {
-                std.debug.print("unhandled object type {}\n", .{obj.type});
-            },
+            else => {},
         }
     }
 

@@ -51,7 +51,8 @@ pub fn disassembleInstruction(c: chunk.Chunk, offset: usize) usize {
             std.debug.print("\n", .{});
 
             const ff = c.constants.items[constant];
-            for (0..ff.asObject().asFunction().upvalueCount) |_| {
+            const func = ff.asObject().asFunction();
+            for (0..func.upvalueCount) |_| {
                 const isLocal: u8 = c.code.items[o];
                 o += 1;
                 const index: u8 = c.code.items[o];

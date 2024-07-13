@@ -118,16 +118,27 @@ pub const Compiler = struct {
     enclosing: ?*Compiler = null,
     vm: *VM = undefined,
 
-    pub fn init(vm: *VM) Compiler {
+    pub fn init(vm: *VM, enclosing: ?*Compiler, typ: FunctionType) Compiler {
         var u: [UpvaluesCount]Upvalue = undefined;
         @memset(&u, undefined);
 
-        const f = value.Function.init(vm) catch unreachable;
         var c = Compiler{
-            .function = f,
-            .funcType = FunctionType.script,
+            .vm = vm,
+            .function = value.Function.init(vm) catch unreachable,
+            .funcType = typ,
             .upvalues = u,
+            .enclosing = enclosing,
         };
+
+        if (enclosing) |e| {
+            c.scnr = e.scnr;
+            c.parser = e.parser;
+        }
+
+        if (typ != .script) {
+            const s = c.scnr.source[c.parser.previous.start .. c.parser.previous.start + c.parser.previous.length];
+            c.function.name = value.String.init(vm, s) catch unreachable;
+        }
 
         // c.function.name = value.String.init(vm, "") catch unreachable;
 
@@ -143,21 +154,23 @@ pub const Compiler = struct {
         return c;
     }
 
-    pub fn initWithEnclosing(enclosing: *Compiler, typ: FunctionType) Compiler {
-        var c = Compiler.init(enclosing.vm);
-        c.vm = enclosing.vm;
-        c.parser = enclosing.parser;
-        c.scnr = enclosing.scnr;
-        c.enclosing = enclosing;
-        c.funcType = typ;
+    // pub fn initWithEnclosing(enclosing: *Compiler, typ: FunctionType) Compiler {
+    //     var c = Compiler.init(enclosing.vm);
+    //     c.vm = enclosing.vm;
 
-        if (typ != .script) {
-            const s = c.scnr.source[c.parser.previous.start .. c.parser.previous.start + c.parser.previous.length];
-            c.function.name = value.String.init(enclosing.vm, s) catch unreachable;
-        }
+    //     c.function = value.Function.init(c.vm) catch unreachable;
+    //     c.parser = enclosing.parser;
+    //     c.scnr = enclosing.scnr;
+    //     c.enclosing = enclosing;
+    //     c.funcType = typ;
 
-        return c;
-    }
+    //     if (typ != .script) {
+    //         const s = c.scnr.source[c.parser.previous.start .. c.parser.previous.start + c.parser.previous.length];
+    //         c.function.name = value.String.init(enclosing.vm, s) catch unreachable;
+    //     }
+
+    //     return c;
+    // }
 
     pub fn deinit(self: *Compiler) void {
         _ = self;
@@ -165,6 +178,8 @@ pub const Compiler = struct {
 
     pub fn compile(self: *Self, source: []const u8, vm: *VM) !*value.Function {
         self.vm = vm;
+
+        // self.vm.push(self.function.obj.value());
 
         self.function.name = value.String.init(vm, "main") catch unreachable;
         var scnr = scanner.Scanner.init(source);
@@ -201,6 +216,7 @@ pub const Compiler = struct {
 
         const f = try self.endCompiler();
 
+        // _ = self.vm.pop();
         return f;
     }
 
@@ -302,7 +318,7 @@ pub const Compiler = struct {
 
     fn binary(self: *Self, _: bool) !void {
         const operatorType = self.parser.previous.type;
-        const rule = try self.getRule(operatorType);
+        const rule = try getRule(operatorType);
         try self.parsePrecedence(@enumFromInt(@intFromEnum(rule.precedence) + 1));
 
         switch (operatorType) {
@@ -322,6 +338,7 @@ pub const Compiler = struct {
 
     fn call(self: *Self, _: bool) !void {
         const argCount = try self.argumentList();
+        std.debug.print("call - argCount: {d}\n", .{argCount});
         try self.emitBytes(@intFromEnum(chunk.OpCode.OpCall), argCount);
     }
 
@@ -427,7 +444,7 @@ pub const Compiler = struct {
 
     fn parsePrecedence(self: *Self, precedence: Precedence) !void {
         try self.advance();
-        var rule = try self.getRule(self.parser.previous.type);
+        var rule = try getRule(self.parser.previous.type);
         const prefixRule = rule.prefixFn;
 
         if (prefixRule == null) {
@@ -439,13 +456,13 @@ pub const Compiler = struct {
         const canAssign = @intFromEnum(precedence) <= @intFromEnum(Precedence.assignment);
         try prefixRule.?(self, canAssign);
 
-        rule = try self.getRule(self.parser.current.type);
+        rule = try getRule(self.parser.current.type);
 
         while (@intFromEnum(precedence) <= @intFromEnum(rule.precedence)) {
             try self.advance();
-            const infixRule = try self.getRule(self.parser.previous.type);
+            const infixRule = try getRule(self.parser.previous.type);
             try infixRule.infixFn.?(self, canAssign);
-            rule = try self.getRule(self.parser.current.type);
+            rule = try getRule(self.parser.current.type);
         }
 
         if (canAssign and try self.match(.equal)) {
@@ -622,8 +639,7 @@ pub const Compiler = struct {
         try self.patchJump(endJump);
     }
 
-    fn getRule(self: *Self, typ: scanner.TokenType) !ParseRule {
-        _ = self;
+    fn getRule(typ: scanner.TokenType) !ParseRule {
         return rules[@intFromEnum(typ)];
     }
 
@@ -640,7 +656,7 @@ pub const Compiler = struct {
     }
 
     fn func(self: *Self, typ: FunctionType) !void {
-        var compiler = Compiler.initWithEnclosing(self, typ);
+        var compiler = Compiler.init(self.vm, self, typ);
         try compiler.beginScope();
 
         _ = try compiler.consume(@intFromEnum(scanner.TokenType.left_paren), "Expect '(' after function name.");
@@ -878,8 +894,10 @@ pub const Compiler = struct {
 
     fn makeConstant(self: *Self, val: value.Value) !u8 {
         self.vm.push(val);
+        // self.vm.push(self.function.obj.value());
         try self.currentChunk().constants.append(val);
         _ = self.vm.pop();
+        // _ = self.vm.pop();
         const constant = self.currentChunk().constants.items.len - 1;
         if (constant > std.math.maxInt(u8)) {
             self.err("Too many constants in one chunk.");
