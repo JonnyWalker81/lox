@@ -74,27 +74,13 @@ const rules = [_]ParseRule{
 const Parser = struct {
     const Self = @This();
 
-    allocator: std.mem.Allocator,
     current: scanner.Token = scanner.Token.init(),
     previous: scanner.Token = scanner.Token.init(),
     hadError: bool = false,
     panicMode: bool = false,
 
-    pub fn init(allocator: std.mem.Allocator) *Parser {
-        const p = allocator.create(Self) catch unreachable;
-        p.* = .{
-            .allocator = allocator,
-        };
-        return p;
-    }
-
-    pub fn parse(self: *Self, source: []const u8) !void {
-        _ = self;
-        _ = source;
-    }
-
-    pub fn deinit(self: *Self) void {
-        self.allocator.destroy(self);
+    pub fn init() Parser {
+        return .{};
     }
 };
 
@@ -120,8 +106,7 @@ const FunctionType = enum {
 pub const Compiler = struct {
     const Self = @This();
 
-    arena: std.heap.ArenaAllocator,
-    parser: *Parser,
+    parser: *Parser = undefined,
     compilingChunk: *chunk.Chunk = undefined,
     scnr: *scanner.Scanner = undefined,
     function: *value.Function = undefined,
@@ -136,11 +121,10 @@ pub const Compiler = struct {
     pub fn init(vm: *VM) Compiler {
         var u: [UpvaluesCount]Upvalue = undefined;
         @memset(&u, undefined);
-        const parser = Parser.init(vm.allocator);
+
+        const f = value.Function.init(vm) catch unreachable;
         var c = Compiler{
-            .arena = std.heap.ArenaAllocator.init(vm.allocator),
-            .parser = parser,
-            .function = value.Function.init(vm) catch unreachable,
+            .function = f,
             .funcType = FunctionType.script,
             .upvalues = u,
         };
@@ -169,24 +153,24 @@ pub const Compiler = struct {
 
         if (typ != .script) {
             const s = c.scnr.source[c.parser.previous.start .. c.parser.previous.start + c.parser.previous.length];
-            // c.function.function.name = std.fmt.allocPrint(allocator, "{s}", .{s}) catch unreachable;
-            c.function.name = value.String.init(c.vm, s) catch unreachable;
+            c.function.name = value.String.init(enclosing.vm, s) catch unreachable;
         }
 
         return c;
     }
 
     pub fn deinit(self: *Compiler) void {
-        self.arena.deinit();
-        self.function.deinit(self.vm);
-        self.parser.deinit();
+        _ = self;
     }
 
     pub fn compile(self: *Self, source: []const u8, vm: *VM) !*value.Function {
         self.vm = vm;
 
         self.function.name = value.String.init(vm, "main") catch unreachable;
-        self.scnr = scanner.Scanner.init(self.arena.allocator(), source);
+        var scnr = scanner.Scanner.init(source);
+        self.scnr = &scnr;
+        var parser = Parser.init();
+        self.parser = &parser;
         // self.v = v;
         var c = chunk.Chunk.init(vm.allocator);
         self.compilingChunk = &c;
@@ -229,7 +213,7 @@ pub const Compiler = struct {
                 break;
             }
 
-            const msg = try std.fmt.allocPrint(self.arena.allocator(), "{s}", .{self.parser.current.type});
+            const msg = try std.fmt.allocPrint(self.vm.allocator, "{s}", .{self.parser.current.type});
             self.errorAtCurrent(msg);
         }
     }

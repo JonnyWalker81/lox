@@ -125,20 +125,15 @@ pub const Token = struct {
 pub const Scanner = struct {
     const Self = @This();
 
-    arena: std.heap.ArenaAllocator,
     start: usize = 0,
     current: usize = 0,
     line: usize = 1,
     source: []const u8,
 
-    pub fn init(allocator: std.mem.Allocator, source: []const u8) *Scanner {
-        const s = allocator.create(Self) catch unreachable;
-        s.* = .{
-            .arena = std.heap.ArenaAllocator.init(allocator),
+    pub fn init(source: []const u8) Scanner {
+        return .{
             .source = source,
         };
-
-        return s;
     }
 
     pub fn scanToken(self: *Self) !Token {

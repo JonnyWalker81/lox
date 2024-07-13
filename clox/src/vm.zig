@@ -102,7 +102,7 @@ pub const VM = struct {
         self.strings = std.StringHashMap(*value.String).init(self.gcAllocator.allocator());
         self.globals = std.AutoHashMap(*value.String, value.Value).init(self.gcAllocator.allocator());
 
-        // self.defineNative("clock", clockNative) catch unreachable;
+        self.defineNative("clock", clockNative) catch unreachable;
     }
 
     pub fn deinit(self: *Self) void {
@@ -115,6 +115,7 @@ pub const VM = struct {
         //     entry.key_ptr().deinit();
         // }
 
+        self.strings.deinit();
         self.globals.deinit();
         self.comp.deinit();
         self.grayStack.deinit();
@@ -125,7 +126,6 @@ pub const VM = struct {
     fn freeObjects(self: *Self) void {
         var obj = self.objects;
         while (obj) |o| {
-            std.debug.print("freeing object...\n", .{});
             const next = o.next;
             o.destroy(self);
             obj = next;
@@ -163,13 +163,13 @@ pub const VM = struct {
 
     fn defineNative(self: *Self, name: []const u8, function: value.NativeFn) !void {
         const s = try value.String.init(self, name);
+        const native = try value.Native.init(self, function);
         // defer s.string.deinit(self);
 
         self.push(s.obj.value());
-        const native = try value.Native.init(self, function);
         self.push(native.obj.value());
         // const val = .{ .native = .{ .function = function } };
-        try self.globals.put(self.stack[0].asObject().asString(), self.stack[1]);
+        try self.globals.put(s, self.peek(0));
         _ = self.pop();
         _ = self.pop();
     }
@@ -377,8 +377,6 @@ pub const VM = struct {
                 },
                 .OpClosure => {
                     const function = self.read_constant();
-                    const ff = function.asObject().asFunction();
-                    std.debug.print("OpClosure: {s}, {any}, {any}", .{ function, ff, ff.name });
                     const closure = try value.Closure.init(self, function.asObject().asFunction());
                     self.push(closure.obj.value());
                     for (0..closure.upvalues.len) |i| {
@@ -530,8 +528,7 @@ pub const VM = struct {
                     return;
                 } else if (a.asObject().is(.string) and b.asObject().is(.string)) {
                     const s = try std.fmt.allocPrint(self.allocator, "{s}{s}", .{ a.asObject().asString(), b.asObject().asString() });
-                    // try self.strings.put(s, void{});
-                    // const result = .{ .string = value.String.init(self.arena.allocator(), s) };
+                    defer self.allocator.free(s);
                     const result = try value.String.init(self, s);
                     self.push(result.obj.value());
                     return;

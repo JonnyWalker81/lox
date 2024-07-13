@@ -39,9 +39,9 @@ pub const Obj = struct {
     }
 
     pub fn destroy(self: *Self, vm: *VM) void {
-        // if (build_options.debug_log_gc) {
-        //     std.debug.print("{} free {} {}\n", .{ @intFromPtr(self), self.type, self.value() });
-        // }
+        if (build_options.debug_log_gc) {
+            std.debug.print("{} free {}\n", .{ @intFromPtr(self), self.type });
+        }
 
         switch (self.type) {
             .string => {
@@ -61,37 +61,6 @@ pub const Obj = struct {
             },
         }
     }
-
-    // pub fn format(
-    //     self: *Self,
-    //     comptime fmt: []const u8,
-    //     options: std.fmt.FormatOptions,
-    //     writer: anytype,
-    // ) !void {
-    //     _ = fmt;
-    //     _ = options;
-
-    //     switch (self.type) {
-    //         .string => {
-    //             const s = self.asString();
-    //             try writer.print("{s}", .{s.string});
-    //         },
-    //         .function => {
-    //             const f = self.asFunction();
-    //             try printFunctionName(writer, f);
-    //         },
-    //         .native => {
-    //             try writer.print("<native fn>", .{});
-    //         },
-    //         .closure => {
-    //             const c = self.asClosure();
-    //             try printFunctionName(writer, c.function);
-    //         },
-    //         .upvalue => {
-    //             try writer.print("<upvalue>", .{});
-    //         },
-    //     }
-    // }
 
     pub fn is(self: *Self, typ: Type) bool {
         return self.type == typ;
@@ -144,14 +113,9 @@ pub const String = struct {
     }
 
     fn allocate(vm: *VM, bytes: []const u8) !*Self {
-        std.debug.print("allocate string...{s}\n", .{bytes});
         const obj = try Obj.create(vm, Self, .string);
         const string = obj.asString();
         string.bytes = bytes;
-        // string.* = .{
-        //     .string = bytes,
-        //     // .obj = obj.*,
-        // };
 
         // Make sure string is visible to the GC during allocation
         vm.push(obj.value());
@@ -163,7 +127,6 @@ pub const String = struct {
     pub fn deinit(self: *Self, vm: *VM) void {
         // _ = self;
         // _ = vm;
-        std.debug.print("deinit string...\n", .{});
         vm.allocator.free(self.bytes);
         vm.allocator.destroy(self);
     }
@@ -204,19 +167,10 @@ pub const Function = struct {
         return f;
     }
 
-    pub fn getName(self: *Self) []const u8 {
-        if (self.name) |n| {
-            return n;
-        }
-
-        return "";
-    }
-
     pub fn deinit(self: *Self, vm: *VM) void {
         // _ = self;
         // _ = vm;
-        std.debug.print("deinit function...\n", .{});
-        // self.chnk.deinit();
+        self.chnk.deinit();
         vm.allocator.destroy(self);
     }
 
@@ -249,7 +203,6 @@ pub const Native = struct {
     }
 
     pub fn deinit(self: *Self, vm: *VM) void {
-        std.debug.print("deinit native...\n", .{});
         vm.allocator.destroy(self);
     }
 };
@@ -277,7 +230,6 @@ pub const Closure = struct {
     }
 
     pub fn deinit(self: *Self, vm: *VM) void {
-        std.debug.print("deinit closure...\n", .{});
         vm.allocator.free(self.upvalues);
         vm.allocator.destroy(self);
     }
@@ -304,7 +256,6 @@ pub const Upvalue = struct {
     }
 
     pub fn deinit(self: *Self, vm: *VM) void {
-        std.debug.print("deinit upvalue...\n", .{});
         vm.allocator.destroy(self);
     }
 
@@ -536,7 +487,6 @@ fn printObject(writer: anytype, obj: *Obj) !void {
 }
 
 fn printFunctionName(writer: anytype, function: *Function) !void {
-    // std.debug.print("function name: {any}\n", .{function});
     if (function.name) |name| {
         try writer.print("<fn {s}>", .{name.bytes});
     } else {

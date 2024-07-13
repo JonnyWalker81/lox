@@ -1,9 +1,10 @@
 // fun outer() {
     // var x = "test inner";
-//   fun inner() {
-    // print x;
-  // }
+  // fun inner() {
+    // print 123;
+   // }
   // inner();
+  print 123;
 // }
 // outer();
 
@@ -15,4 +16,5 @@
 // var a = "hello ";
 // var b = "world!";
 // var hello = a + b;
+// print hello;
 print 123;

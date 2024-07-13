@@ -80,9 +80,10 @@ pub const GCAllocator = struct {
 
         self.markRoots();
         self.traceReferences();
+        self.sweep();
 
         if (build_options.debug_log_gc) {
-            std.debug.print("-- gc begin\n", .{});
+            std.debug.print("-- gc end\n", .{});
         }
     }
 
@@ -92,6 +93,8 @@ pub const GCAllocator = struct {
         }
 
         self.markTable(&self.vm.globals);
+
+        self.markCompilerRoots();
 
         for (0..self.vm.frameCount) |i| {
             self.markObject(&self.vm.frames[i].closure.obj);
@@ -107,6 +110,28 @@ pub const GCAllocator = struct {
         while (self.vm.grayStack.items.len > 0) : (_ = self.vm.grayStack.pop()) {
             const val = self.vm.grayStack.items[self.vm.grayStack.items.len - 1];
             self.blackenObject(val);
+        }
+    }
+
+    fn sweep(self: *Self) void {
+        var previous: ?*value.Obj = null;
+        var object = self.vm.objects;
+        while (object) |obj| {
+            if (obj.isMarked) {
+                obj.isMarked = false;
+                previous = obj;
+                object = obj.next;
+            } else {
+                const unreached = obj;
+                object = obj.next;
+                if (previous) |p| {
+                    p.next = object;
+                } else {
+                    self.vm.objects = object;
+                }
+
+                unreached.destroy(self.vm);
+            }
         }
     }
 
@@ -140,7 +165,6 @@ pub const GCAllocator = struct {
                 if (f.name) |name| {
                     self.markObject(&name.obj);
                 }
-                // self.markValue(f.name);
                 self.markArray(f.chnk.constants.items);
             },
             .closure => {
@@ -150,7 +174,9 @@ pub const GCAllocator = struct {
                     self.markObject(&up.obj);
                 }
             },
-            else => {},
+            else => {
+                std.debug.print("unhandled object type {}\n", .{obj.type});
+            },
         }
     }
 
@@ -179,9 +205,10 @@ pub const GCAllocator = struct {
     }
 
     fn markCompilerRoots(self: *Self) void {
-        var compiler: ?*Compiler = self.vm.compiler;
-        while (compiler) : (compiler = compiler.?.enclosing) {
-            self.markObject(&compiler.function);
+        var maybeCompiler: ?*Compiler = &self.vm.comp;
+        while (maybeCompiler) |compiler| {
+            self.markObject(&compiler.function.obj);
+            maybeCompiler = compiler.enclosing;
         }
     }
 };
