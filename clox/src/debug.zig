@@ -107,6 +107,12 @@ pub fn disassembleInstruction(c: chunk.Chunk, offset: usize) usize {
         .OpSetUpvalue => {
             return byteInstruction("OP_SET_UPVALUE", c, offset);
         },
+        .OpGetProperty => {
+            return constantInstruction("OP_GET_PROPERTY", c, offset);
+        },
+        .OpSetProperty => {
+            return constantInstruction("OP_SET_PROPERTY", c, offset);
+        },
         .OpEqual => {
             return simpleInstruction("OP_EQUAL", offset);
         },
@@ -227,6 +233,10 @@ pub fn printObject(obj: *value.Obj) void {
         .class => {
             const c = obj.asClass();
             std.debug.print("{s}", .{c.name.bytes});
+        },
+        .instance => {
+            const i = obj.asInstance();
+            std.debug.print("{s} instance", .{i.class.name.bytes});
         },
     }
 }

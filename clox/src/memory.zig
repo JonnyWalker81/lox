@@ -222,6 +222,12 @@ pub const GCAllocator = struct {
             .class => {
                 const c = obj.asClass();
                 self.markObject(&c.name.obj);
+                self.markTable(&c.methods);
+            },
+            .instance => {
+                const i = obj.asInstance();
+                self.markObject(&i.class.obj);
+                self.markTable(&i.fields);
             },
             else => {},
         }

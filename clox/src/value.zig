@@ -15,6 +15,7 @@ pub const Obj = struct {
         closure,
         upvalue,
         class,
+        instance,
     };
 
     isMarked: bool = false,
@@ -63,6 +64,9 @@ pub const Obj = struct {
             .class => {
                 self.asClass().deinit(vm);
             },
+            .instance => {
+                self.asInstance().deinit(vm);
+            },
         }
     }
 
@@ -99,6 +103,10 @@ pub const Obj = struct {
     }
 
     pub fn asClass(self: *Self) *Class {
+        return @fieldParentPtr("obj", self);
+    }
+
+    pub fn asInstance(self: *Self) *Instance {
         return @fieldParentPtr("obj", self);
     }
 };
@@ -286,19 +294,47 @@ pub const Class = struct {
 
     obj: Obj,
     name: *String,
+    methods: std.AutoHashMap(*String, Value),
 
     pub fn init(vm: *VM, name: *String) !*Self {
         const obj = try Obj.create(vm, Self, .class);
         const class = obj.asClass();
         class.* = .{
-            .name = name,
             .obj = obj.*,
+            .name = name,
+            .methods = std.AutoHashMap(*String, Value).init(vm.allocator),
         };
 
         return class;
     }
 
     pub fn deinit(self: *Self, vm: *VM) void {
+        self.methods.deinit();
+        vm.allocator.destroy(self);
+    }
+};
+
+pub const Instance = struct {
+    const Self = @This();
+
+    obj: Obj,
+    class: *Class,
+    fields: std.AutoHashMap(*String, Value),
+
+    pub fn init(vm: *VM, class: *Class) !*Self {
+        const obj = try Obj.create(vm, Self, .instance);
+        const instance = obj.asInstance();
+        instance.* = .{
+            .obj = obj.*,
+            .class = class,
+            .fields = std.AutoHashMap(*String, Value).init(vm.allocator),
+        };
+
+        return instance;
+    }
+
+    pub fn deinit(self: *Self, vm: *VM) void {
+        self.fields.deinit();
         vm.allocator.destroy(self);
     }
 };
@@ -332,6 +368,14 @@ pub const Value = union(ValueType) {
 
     pub fn isObject(self: Self) bool {
         return self == .obj;
+    }
+
+    pub fn isObjType(self: Self, typ: Obj.Type) bool {
+        if (self.isObject()) {
+            return self.asObject().type == typ;
+        }
+
+        return false;
     }
 
     pub fn asBool(self: Self) bool {
@@ -444,6 +488,10 @@ fn printObject(writer: anytype, obj: *Obj) !void {
         .class => {
             const c = obj.asClass();
             try writer.print("{s}", .{c.name.bytes});
+        },
+        .instance => {
+            const i = obj.asInstance();
+            try writer.print("{s} instance", .{i.class.name.bytes});
         },
     }
 }

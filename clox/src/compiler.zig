@@ -34,7 +34,7 @@ const rules = [_]ParseRule{
     .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .left_brace
     .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .right_brace
     .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .comma
-    .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .dot
+    .{ .prefixFn = null, .infixFn = Compiler.dot, .precedence = .call }, // .dot
     .{ .prefixFn = Compiler.unary, .infixFn = Compiler.binary, .precedence = .term }, // .minus
     .{ .prefixFn = null, .infixFn = Compiler.binary, .precedence = .term }, // .plus
     .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .semicolon
@@ -339,6 +339,25 @@ pub const Compiler = struct {
     fn call(self: *Self, _: bool) !void {
         const argCount = try self.argumentList();
         try self.emitBytes(@intFromEnum(chunk.OpCode.OpCall), argCount);
+    }
+
+    fn dot(self: *Self, canAssign: bool) !void {
+        _ = try self.consume(@intFromEnum(scanner.TokenType.identifier), "Expect property name after '.'.");
+        const name = self.parser.previous;
+        const nameConstant = try self.identifierConstant(name);
+
+        if (canAssign and try self.match(.equal)) {
+            try self.expression();
+            try self.emitBytes(@intFromEnum(chunk.OpCode.OpSetProperty), nameConstant);
+        }
+        // else if (try self.match(.left_paren)) {
+        //     const argCount = try self.argumentList();
+        //     try self.emitBytes(@intFromEnum(chunk.OpCode.OpInvoke), nameConstant);
+        //     try self.emitByte(argCount);
+        // }
+        else {
+            try self.emitBytes(@intFromEnum(chunk.OpCode.OpGetProperty), nameConstant);
+        }
     }
 
     fn literal(self: *Self, _: bool) !void {

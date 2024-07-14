@@ -27,6 +27,8 @@ pub const OpCode = enum(u8) {
     OpGetUpvalue,
     OpSetUpvalue,
     OpEqual,
+    OpGetProperty,
+    OpSetProperty,
     OpGreater,
     OpLess,
     OpAdd,

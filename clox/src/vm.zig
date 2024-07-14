@@ -209,6 +209,12 @@ pub const VM = struct {
                 self.push(result);
                 return true;
             },
+            .class => {
+                const class = callee.asObject().asClass();
+                const instance = value.Instance.init(self, class) catch @panic("could not create instance.");
+                self.stack[self.stackTop - argCount - 1] = instance.obj.value();
+                return true;
+            },
             .closure => {
                 const closure = callee.asObject().asClosure();
                 return self.call(closure, argCount);
@@ -471,6 +477,36 @@ pub const VM = struct {
                 .OpSetUpvalue => {
                     const slot = self.readByte();
                     f.closure.upvalues[slot].location.* = self.peek(0);
+                },
+                .OpGetProperty => {
+                    if (!self.peek(0).isObjType(.instance)) {
+                        self.runtimeError("Only instances have properties.", .{});
+                        return InterpreterError.runtime_error;
+                    }
+
+                    const instance = self.peek(0).asObject().asInstance();
+                    const name = self.readString();
+
+                    if (instance.fields.get(name)) |val| {
+                        _ = self.pop();
+                        self.push(val);
+                    } else {
+                        self.runtimeError("Undefined property '{s}'", .{name.bytes});
+                        return InterpreterError.runtime_error;
+                    }
+                },
+                .OpSetProperty => {
+                    if (!self.peek(1).isObjType(.instance)) {
+                        self.runtimeError("Only instances have fields.", .{});
+                        return InterpreterError.runtime_error;
+                    }
+
+                    const instance = self.peek(1).asObject().asInstance();
+                    const name = self.readString();
+                    try instance.fields.put(name, self.peek(0));
+                    const val = self.pop();
+                    _ = self.pop();
+                    self.push(val);
                 },
                 .OpEqual => {
                     const b = self.pop();
