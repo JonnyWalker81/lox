@@ -124,7 +124,7 @@ pub const VM = struct {
     }
 
     fn freeObjects(self: *Self) void {
-        std.debug.print("freeObjects\n", .{});
+        // std.debug.print("freeObjects\n", .{});
         var obj = self.objects;
         while (obj) |o| {
             const next = o.next;
@@ -186,12 +186,10 @@ pub const VM = struct {
     }
 
     fn peek(self: *Self, distance: usize) value.Value {
-        std.debug.print("stackTop: {d}\n", .{self.stackTop});
         return self.stack[self.stackTop - 1 - distance];
     }
 
     fn callValue(self: *Self, callee: value.Value, argCount: u8) bool {
-        std.debug.print("callee: {any}\n", .{callee});
         switch (callee.asObject().type) {
             // .function => |f| {
             //     // if (f.arity != argCount) {
@@ -371,9 +369,7 @@ pub const VM = struct {
                     f.ip -= offset;
                 },
                 .OpCall => {
-                    std.debug.print("frame ip: {d}\n", .{f.ip});
                     const argCount = self.readByte();
-                    std.debug.print("arg count: {d}\n", .{argCount});
                     const callee = self.peek(argCount);
                     if (!self.callValue(callee, argCount)) {
                         return InterpreterError.runtime_error;
@@ -505,6 +501,11 @@ pub const VM = struct {
                 .OpNegate => {
                     try self.run_negate();
                 },
+                .OpClass => {
+                    const className = self.readString();
+                    const class = try value.Class.init(self, className);
+                    self.push(class.obj.value());
+                },
             }
         }
     }
@@ -517,46 +518,43 @@ pub const VM = struct {
 
         const b = self.peek(0);
         const a = self.peek(1);
+        var result: value.Value = .nil;
         switch (op) {
             .greater => {
-                const result = .{ .bool = a.asNumber() > b.asNumber() };
-                self.push(result);
+                result = .{ .bool = a.asNumber() > b.asNumber() };
             },
             .less => {
-                const result = .{ .bool = a.asNumber() < b.asNumber() };
-                self.push(result);
+                result = .{ .bool = a.asNumber() < b.asNumber() };
             },
             .add => {
                 if (a.isNumber() and b.isNumber()) {
-                    const result = .{ .number = a.asNumber() + b.asNumber() };
-                    self.push(result);
-                    return;
+                    result = .{ .number = a.asNumber() + b.asNumber() };
                 } else if (a.asObject().is(.string) and b.asObject().is(.string)) {
                     const s = try std.fmt.allocPrint(self.allocator, "{s}{s}", .{ a.asObject().asString(), b.asObject().asString() });
                     defer self.allocator.free(s);
-                    const result = try value.String.init(self, s);
-                    _ = self.pop();
-                    _ = self.pop();
-                    self.push(result.obj.value());
-                    return;
+                    const str = try value.String.init(self, s);
+                    result = str.obj.value();
+                } else {
+                    self.runtimeError("Operands must be two numbers or two strings", .{});
+                    return InterpreterError.runtime_error;
                 }
-
-                self.runtimeError("Operands must be two numbers or two strings", .{});
-                return InterpreterError.runtime_error;
             },
             .subtract => {
-                const result = .{ .number = a.asNumber() - b.asNumber() };
-                self.push(result);
+                result = .{ .number = a.asNumber() - b.asNumber() };
             },
             .multiply => {
-                const result = .{ .number = a.asNumber() * b.asNumber() };
+                result = .{ .number = a.asNumber() * b.asNumber() };
                 self.push(result);
             },
             .divide => {
-                const result = .{ .number = a.asNumber() / b.asNumber() };
+                result = .{ .number = a.asNumber() / b.asNumber() };
                 self.push(result);
             },
         }
+
+        _ = self.pop();
+        _ = self.pop();
+        self.push(result);
     }
 
     fn run_print(self: *Self) !void {
@@ -606,6 +604,11 @@ pub const VM = struct {
         const b = self.readByte();
 
         return frame.closure.function.chnk.constants.items[b];
+    }
+
+    fn readString(self: *Self) *value.String {
+        const constant = self.read_constant();
+        return constant.obj.asString();
     }
 };
 

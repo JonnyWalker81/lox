@@ -338,7 +338,6 @@ pub const Compiler = struct {
 
     fn call(self: *Self, _: bool) !void {
         const argCount = try self.argumentList();
-        std.debug.print("call - argCount: {d}\n", .{argCount});
         try self.emitBytes(@intFromEnum(chunk.OpCode.OpCall), argCount);
     }
 
@@ -697,6 +696,20 @@ pub const Compiler = struct {
         }
     }
 
+    fn classDeclaration(self: *Self) !void {
+        _ = try self.consume(@intFromEnum(scanner.TokenType.identifier), "Expect class name.");
+        const className = self.parser.previous;
+        const nameConstant = try self.identifierConstant(className);
+        try self.declareVariable();
+
+        try self.emitBytes(@intFromEnum(chunk.OpCode.OpClass), nameConstant);
+        try self.defineVariable(nameConstant);
+
+        // try self.classMethods();
+        _ = try self.consume(@intFromEnum(scanner.TokenType.left_brace), "Expect '{' before class body.");
+        _ = try self.consume(@intFromEnum(scanner.TokenType.right_brace), "Expect '}' after class body.");
+    }
+
     fn funDeclaration(self: *Self) !void {
         const global = try self.parseVariable("Expect function name.");
         try self.markInitialized();
@@ -854,7 +867,9 @@ pub const Compiler = struct {
     }
 
     fn declaration(self: *Self) anyerror!void {
-        if (try self.match(.fun)) {
+        if (try self.match(.class)) {
+            try self.classDeclaration();
+        } else if (try self.match(.fun)) {
             try self.funDeclaration();
         } else if (try self.match(.@"var")) {
             try self.varDeclaration();

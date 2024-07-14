@@ -9,6 +9,7 @@ pub fn disassembleChunk(c: chunk.Chunk, name: []const u8) void {
     while (offset < c.count) {
         offset = disassembleInstruction(c, offset);
     }
+    std.debug.print("\n\n", .{});
 }
 
 pub fn disassembleInstruction(c: chunk.Chunk, offset: usize) usize {
@@ -66,6 +67,9 @@ pub fn disassembleInstruction(c: chunk.Chunk, offset: usize) usize {
         },
         .OpReturn => {
             return simpleInstruction("OP_RETURN", offset);
+        },
+        .OpClass => {
+            return constantInstruction("OP_CLASS", c, offset);
         },
         .OpConstant => {
             return constantInstruction("OP_CONSTANT", c, offset);
@@ -219,6 +223,10 @@ pub fn printObject(obj: *value.Obj) void {
         },
         .upvalue => |_| {
             std.debug.print("upvalue", .{});
+        },
+        .class => {
+            const c = obj.asClass();
+            std.debug.print("{s}", .{c.name.bytes});
         },
     }
 }

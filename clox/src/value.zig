@@ -14,6 +14,7 @@ pub const Obj = struct {
         native,
         closure,
         upvalue,
+        class,
     };
 
     isMarked: bool = false,
@@ -59,6 +60,9 @@ pub const Obj = struct {
             .upvalue => {
                 self.asUpvalue().deinit(vm);
             },
+            .class => {
+                self.asClass().deinit(vm);
+            },
         }
     }
 
@@ -91,6 +95,10 @@ pub const Obj = struct {
     }
 
     pub fn asUpvalue(self: *Self) *Upvalue {
+        return @fieldParentPtr("obj", self);
+    }
+
+    pub fn asClass(self: *Self) *Class {
         return @fieldParentPtr("obj", self);
     }
 };
@@ -273,6 +281,28 @@ pub const Upvalue = struct {
     }
 };
 
+pub const Class = struct {
+    const Self = @This();
+
+    obj: Obj,
+    name: *String,
+
+    pub fn init(vm: *VM, name: *String) !*Self {
+        const obj = try Obj.create(vm, Self, .class);
+        const class = obj.asClass();
+        class.* = .{
+            .name = name,
+            .obj = obj.*,
+        };
+
+        return class;
+    }
+
+    pub fn deinit(self: *Self, vm: *VM) void {
+        vm.allocator.destroy(self);
+    }
+};
+
 pub const ValueType = enum {
     nil,
     bool,
@@ -287,11 +317,6 @@ pub const Value = union(ValueType) {
     bool: bool,
     number: f64,
     obj: *Obj,
-    // string: *String,
-    // function: *Function,
-    // native: *Native,
-    // closure: *Closure,
-    // upvalue: *Upvalue,
 
     pub fn isNil(self: Self) bool {
         return self == .nil;
@@ -308,38 +333,6 @@ pub const Value = union(ValueType) {
     pub fn isObject(self: Self) bool {
         return self == .obj;
     }
-
-    // pub fn isFunction(self: Self) bool {
-    //     switch (self) {
-    //         .function => return true,
-    //         else => return false,
-    //     }
-    // }
-
-    // pub fn isNative(self: Self) bool {
-    //     switch (self) {
-    //         .native => return true,
-    //         else => return false,
-    //     }
-    // }
-
-    // pub fn isClosure(self: Self) bool {
-    //     switch (self) {
-    //         .closure => return true,
-    //         else => return false,
-    //     }
-    // }
-
-    // pub fn isObject(self: Self) bool {
-    //     switch (self) {
-    //         .string => return true,
-    //         .function => return true,
-    //         .native => return true,
-    //         .closure => return true,
-    //         .upvalue => return true,
-    //         else => return false,
-    //     }
-    // }
 
     pub fn asBool(self: Self) bool {
         switch (self) {
@@ -365,45 +358,6 @@ pub const Value = union(ValueType) {
     pub fn nil() Self {
         return .nil;
     }
-
-    // pub fn functionValue(self: Self) *Function {
-    //     switch (self) {
-    //         .function => |f| return f,
-    //         else => @panic("expected function, not a function."),
-    //     }
-    // }
-
-    // pub fn nativeValue(self: Self) Native {
-    //     switch (self) {
-    //         .native => |n| return n,
-    //         else => @panic("expected native, not a native."),
-    //     }
-    // }
-
-    // pub fn closureValue(self: Self) Closure {
-    //     switch (self) {
-    //         .closure => |c| return c,
-    //         else => @panic("expected closure, not a closure."),
-    //     }
-    // }
-
-    // pub fn asString(self: Self) *String {
-    //     switch (self) {
-    //         .string => |s| return @fieldParentPtr("obj", &s.obj),
-    //         else => @panic("expected string, not a string."),
-    //     }
-    // }
-
-    // pub fn asObject(self: Self) *Obj {
-    //     switch (self) {
-    //         .string => |s| return &s.obj,
-    //         .function => |f| return &f.obj,
-    //         .native => |n| return &n.obj,
-    //         .closure => |c| return &c.obj,
-    //         .upvalue => |u| return &u.obj,
-    //         else => @panic("expected object, not a object."),
-    //     }
-    // }
 
     pub fn isFalsey(self: Self) bool {
         switch (self) {
@@ -486,6 +440,10 @@ fn printObject(writer: anytype, obj: *Obj) !void {
         },
         .upvalue => {
             try writer.print("<upvalue>", .{});
+        },
+        .class => {
+            const c = obj.asClass();
+            try writer.print("{s}", .{c.name.bytes});
         },
     }
 }

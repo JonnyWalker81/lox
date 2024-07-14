@@ -41,7 +41,6 @@ pub const GCAllocator = struct {
         ptr_align: u8,
         ra: usize,
     ) ?[*]u8 {
-        std.debug.print("alloc\n", .{});
         const self: *Self = @ptrCast(@alignCast(ctx));
 
         if ((self.bytesAllocated + len > self.nextGC) or build_options.debug_stress_gc) {
@@ -60,7 +59,6 @@ pub const GCAllocator = struct {
         new_len: usize,
         ra: usize,
     ) bool {
-        std.debug.print("resize\n", .{});
         const self: *Self = @ptrCast(@alignCast(ctx));
 
         if (new_len > buf.len) {
@@ -88,7 +86,6 @@ pub const GCAllocator = struct {
         log2_buf_align: u8,
         ra: usize,
     ) void {
-        std.debug.print("free\n", .{});
         const self: *Self = @ptrCast(@alignCast(ctx));
         self.backingAllocator.rawFree(buf, log2_buf_align, ra);
         self.bytesAllocated -= buf.len;
@@ -221,6 +218,10 @@ pub const GCAllocator = struct {
                 for (c.upvalues) |up| {
                     self.markObject(&up.obj);
                 }
+            },
+            .class => {
+                const c = obj.asClass();
+                self.markObject(&c.name.obj);
             },
             else => {},
         }
