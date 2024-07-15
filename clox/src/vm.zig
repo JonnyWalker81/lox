@@ -209,6 +209,11 @@ pub const VM = struct {
                 self.push(result);
                 return true;
             },
+            .boundMethod => {
+                const bound = callee.asObject().asBoundMethod();
+                self.stack[self.stackTop - argCount - 1] = bound.receiver;
+                return self.call(bound.method, argCount);
+            },
             .class => {
                 const class = callee.asObject().asClass();
                 const instance = value.Instance.init(self, class) catch @panic("could not create instance.");
@@ -224,6 +229,19 @@ pub const VM = struct {
                 return false;
             },
         }
+    }
+
+    fn bindMethod(self: *Self, class: *value.Class, name: *value.String) !bool {
+        if (class.methods.get(name)) |method| {
+            const bound = try value.BoundMethod.init(self, self.peek(0), method.asObject().asClosure());
+
+            _ = self.pop();
+            self.push(bound.obj.value());
+            return true;
+        }
+
+        self.runtimeError("Undefined property '{s}'", .{name.bytes});
+        return false;
     }
 
     fn captureValue(self: *Self, local: *value.Value) !*value.Upvalue {
@@ -259,6 +277,13 @@ pub const VM = struct {
             upvalue.location = &upvalue.closed.?;
             self.openUpvalues = upvalue.next;
         }
+    }
+
+    fn defineMethod(self: *Self, name: *value.String) !void {
+        const method = self.peek(0);
+        const class = self.peek(1).asObject().asClass();
+        try class.methods.put(name, method);
+        _ = self.pop();
     }
 
     fn call(self: *Self, c: *value.Closure, argCount: u8) bool {
@@ -491,8 +516,13 @@ pub const VM = struct {
                         _ = self.pop();
                         self.push(val);
                     } else {
-                        self.runtimeError("Undefined property '{s}'", .{name.bytes});
-                        return InterpreterError.runtime_error;
+
+                        // self.runtimeError("Undefined property '{s}'", .{name.bytes});
+                        // return InterpreterError.runtime_error;
+
+                        if (!try self.bindMethod(instance.class, name)) {
+                            return InterpreterError.runtime_error;
+                        }
                     }
                 },
                 .OpSetProperty => {
@@ -541,6 +571,9 @@ pub const VM = struct {
                     const className = self.readString();
                     const class = try value.Class.init(self, className);
                     self.push(class.obj.value());
+                },
+                .OpMethod => {
+                    try self.defineMethod(self.readString());
                 },
             }
         }

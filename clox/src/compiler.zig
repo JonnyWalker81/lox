@@ -63,7 +63,7 @@ const rules = [_]ParseRule{
     .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .print
     .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .return
     .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .super
-    .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .this
+    .{ .prefixFn = Compiler.this, .infixFn = null, .precedence = .none }, // .this
     .{ .prefixFn = Compiler.literal, .infixFn = null, .precedence = .none }, // .true
     .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .var
     .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .while
@@ -74,8 +74,8 @@ const rules = [_]ParseRule{
 const Parser = struct {
     const Self = @This();
 
-    current: scanner.Token = scanner.Token.init(),
-    previous: scanner.Token = scanner.Token.init(),
+    current: scanner.Token = undefined,
+    previous: scanner.Token = undefined,
     hadError: bool = false,
     panicMode: bool = false,
 
@@ -100,6 +100,7 @@ pub const Upvalue = struct {
 
 const FunctionType = enum {
     function,
+    method,
     script,
 };
 
@@ -136,7 +137,8 @@ pub const Compiler = struct {
         }
 
         if (typ != .script) {
-            const s = c.scnr.source[c.parser.previous.start .. c.parser.previous.start + c.parser.previous.length];
+            // const s = c.scnr.source[c.parser.previous.start .. c.parser.previous.start + c.parser.previous.length];
+            const s = c.parser.previous.start;
             c.function.name = value.String.init(vm, s) catch unreachable;
         }
 
@@ -148,8 +150,12 @@ pub const Compiler = struct {
         c.localCount += 1;
         local.depth = 0;
         local.isCaptured = false;
-        local.name.start = 0;
-        local.name.length = 0;
+
+        if (typ != .function) {
+            local.name.start = "this";
+        } else {
+            local.name.start = "";
+        }
 
         return c;
     }
@@ -399,9 +405,10 @@ pub const Compiler = struct {
     }
 
     fn string(self: *Self, _: bool) !void {
-        const prevStart = self.parser.previous.start + 1;
-        const prevLength = self.parser.previous.length - 2;
-        const s = self.scnr.source[prevStart .. prevStart + prevLength];
+        // const prevStart = self.parser.previous.start + 1;
+        // const prevLength = self.parser.previous.length - 2;
+        // const s = self.scnr.source[prevStart .. prevStart + prevLength];
+        const s = self.parser.previous.start;
         const strVal = try value.String.init(self.vm, s);
         // const s = try std.fmt.allocPrint(self.arena.allocator(), "{s}", .{strVal.string});
         // try self.v.strings.put(s, void{});
@@ -449,6 +456,15 @@ pub const Compiler = struct {
         try self.namedVariable(self.parser.previous, canAssign);
     }
 
+    fn this(self: *Self, _: bool) !void {
+        // if (self.funcType == .function) {
+        //     self.err("Cannot use 'this' outside of a method.");
+        //     return;
+        // }
+
+        try self.variable(false);
+    }
+
     fn unary(self: *Self, _: bool) !void {
         const operatorType = self.parser.previous.type;
         try self.parsePrecedence(.unary);
@@ -490,7 +506,8 @@ pub const Compiler = struct {
 
     fn identifierConstant(self: *Self, name: scanner.Token) !u8 {
         // const s = try std.fmt.allocPrint(self.arena.allocator(), "{s}", .{self.scnr.source[name.start .. name.start + name.length]});
-        const s = self.scnr.source[name.start .. name.start + name.length];
+        // const s = self.scnr.source[name.start .. name.start + name.length];
+        const s = name.start;
         // const constant = try self.makeConstant(.{ .string = value.String.init(self.vm.allocator, s, self.vm) });
         const str = try value.String.init(self.vm, s);
         const constant = try self.makeConstant(str.obj.value());
@@ -531,9 +548,12 @@ pub const Compiler = struct {
     }
 
     fn identifiersEqual(self: *Self, a: scanner.Token, b: scanner.Token) bool {
-        const aStr = self.scnr.source[a.start .. a.start + a.length];
-        const bStr = self.scnr.source[b.start .. b.start + b.length];
-        return a.length == b.length and
+        _ = self;
+        // const aStr = self.scnr.source[a.start .. a.start + a.length];
+        const aStr = a.start;
+        // const bStr = self.scnr.source[b.start .. b.start + b.length];
+        const bStr = b.start;
+        return aStr.len == bStr.len and
             std.mem.eql(u8, aStr, bStr);
     }
 
@@ -715,6 +735,23 @@ pub const Compiler = struct {
         }
     }
 
+    fn method(self: *Self) !void {
+        _ = try self.consume(@intFromEnum(scanner.TokenType.identifier), "Expect method name.");
+        const methodName = self.parser.previous;
+        const constant = try self.identifierConstant(methodName);
+
+        const fType = .method;
+        try self.func(fType);
+        try self.emitBytes(@intFromEnum(chunk.OpCode.OpMethod), constant);
+
+        // if (try self.match(.left_paren)) {
+        //     try self.func(.method);
+        //     try self.emitBytes(@intFromEnum(chunk.OpCode.OpMethod), constant);
+        // } else {
+        //     self.err("Expect '(' after method name.");
+        // }
+    }
+
     fn classDeclaration(self: *Self) !void {
         _ = try self.consume(@intFromEnum(scanner.TokenType.identifier), "Expect class name.");
         const className = self.parser.previous;
@@ -724,9 +761,15 @@ pub const Compiler = struct {
         try self.emitBytes(@intFromEnum(chunk.OpCode.OpClass), nameConstant);
         try self.defineVariable(nameConstant);
 
-        // try self.classMethods();
+        try self.namedVariable(className, false);
         _ = try self.consume(@intFromEnum(scanner.TokenType.left_brace), "Expect '{' before class body.");
+
+        while (!self.check(.right_brace) and !self.check(.eof)) {
+            try self.method();
+        }
+
         _ = try self.consume(@intFromEnum(scanner.TokenType.right_brace), "Expect '}' after class body.");
+        try self.emitByte(@intFromEnum(chunk.OpCode.OpPop));
     }
 
     fn funDeclaration(self: *Self) !void {

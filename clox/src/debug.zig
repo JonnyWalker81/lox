@@ -71,6 +71,9 @@ pub fn disassembleInstruction(c: chunk.Chunk, offset: usize) usize {
         .OpClass => {
             return constantInstruction("OP_CLASS", c, offset);
         },
+        .OpMethod => {
+            return constantInstruction("OP_METHOD", c, offset);
+        },
         .OpConstant => {
             return constantInstruction("OP_CONSTANT", c, offset);
         },
@@ -237,6 +240,14 @@ pub fn printObject(obj: *value.Obj) void {
         .instance => {
             const i = obj.asInstance();
             std.debug.print("{s} instance", .{i.class.name.bytes});
+        },
+        .boundMethod => {
+            const bm = obj.asBoundMethod();
+            if (bm.method.function.name) |name| {
+                std.debug.print("<fn {s}>", .{name.bytes});
+            } else {
+                std.debug.print("<script>", .{});
+            }
         },
     }
 }

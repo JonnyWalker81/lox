@@ -37,6 +37,7 @@ pub const OpCode = enum(u8) {
     OpDivide,
     OpNot,
     OpClass,
+    OpMethod,
 };
 
 pub const Chunk = struct {

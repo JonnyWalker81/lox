@@ -229,6 +229,11 @@ pub const GCAllocator = struct {
                 self.markObject(&i.class.obj);
                 self.markTable(&i.fields);
             },
+            .boundMethod => {
+                const bm = obj.asBoundMethod();
+                self.markValue(bm.receiver);
+                self.markObject(&bm.method.obj);
+            },
             else => {},
         }
     }

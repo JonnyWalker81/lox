@@ -16,6 +16,7 @@ pub const Obj = struct {
         upvalue,
         class,
         instance,
+        boundMethod,
     };
 
     isMarked: bool = false,
@@ -67,6 +68,9 @@ pub const Obj = struct {
             .instance => {
                 self.asInstance().deinit(vm);
             },
+            .boundMethod => {
+                self.asBoundMethod().deinit(vm);
+            },
         }
     }
 
@@ -107,6 +111,10 @@ pub const Obj = struct {
     }
 
     pub fn asInstance(self: *Self) *Instance {
+        return @fieldParentPtr("obj", self);
+    }
+
+    pub fn asBoundMethod(self: *Self) *BoundMethod {
         return @fieldParentPtr("obj", self);
     }
 };
@@ -339,6 +347,31 @@ pub const Instance = struct {
     }
 };
 
+pub const BoundMethod = struct {
+    const Self = @This();
+
+    obj: Obj,
+    receiver: Value,
+    method: *Closure,
+
+    pub fn init(vm: *VM, receiver: Value, method: *Closure) !*Self {
+        const obj = try Obj.create(vm, Self, .boundMethod);
+        const boundMethod = obj.asBoundMethod();
+
+        boundMethod.* = .{
+            .obj = obj.*,
+            .receiver = receiver,
+            .method = method,
+        };
+
+        return boundMethod;
+    }
+
+    pub fn deinit(self: *Self, vm: *VM) void {
+        vm.allocator.destroy(self);
+    }
+};
+
 pub const ValueType = enum {
     nil,
     bool,
@@ -493,10 +526,14 @@ fn printObject(writer: anytype, obj: *Obj) !void {
             const i = obj.asInstance();
             try writer.print("{s} instance", .{i.class.name.bytes});
         },
+        .boundMethod => {
+            const b = obj.asBoundMethod();
+            try printFunctionName(writer, b.method.function);
+        },
     }
 }
 
-fn printFunctionName(writer: anytype, function: *Function) !void {
+pub fn printFunctionName(writer: anytype, function: *Function) !void {
     if (function.name) |name| {
         try writer.print("<fn {s}>", .{name.bytes});
     } else {

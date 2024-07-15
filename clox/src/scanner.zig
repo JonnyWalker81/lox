@@ -106,12 +106,16 @@ pub const TokenType = union(enum) {
 
 pub const Token = struct {
     type: TokenType = .eof,
-    start: usize = 0,
-    length: usize = 0,
+    start: []const u8,
+    // length: usize = 0,
     line: usize = 0,
 
-    pub fn init() Token {
-        return .{};
+    pub fn init(typ: TokenType, start: []const u8, line: usize) Token {
+        return .{
+            .type = typ,
+            .start = start,
+            .line = line,
+        };
     }
 
     pub fn number(self: Token) f64 {
@@ -125,7 +129,7 @@ pub const Token = struct {
 pub const Scanner = struct {
     const Self = @This();
 
-    start: usize = 0,
+    start: []const u8 = undefined,
     current: usize = 0,
     line: usize = 1,
     source: []const u8,
@@ -133,13 +137,15 @@ pub const Scanner = struct {
     pub fn init(source: []const u8) Scanner {
         return .{
             .source = source,
+            .start = source,
         };
     }
 
     pub fn scanToken(self: *Self) !Token {
         self.skipWhitespace();
 
-        self.start = self.current;
+        self.start = self.start[self.current..];
+        self.current = 0;
 
         if (self.isAtEnd()) {
             return self.makeToken(.eof);
@@ -214,12 +220,12 @@ pub const Scanner = struct {
     }
 
     fn isAtEnd(self: *Self) bool {
-        return self.current >= self.source.len;
+        return self.current >= self.start.len;
     }
 
     fn advance(self: *Self) u8 {
         self.current += 1;
-        return self.source[self.current - 1];
+        return self.start[self.current - 1];
     }
 
     fn peek(self: *Self) u8 {
@@ -227,7 +233,7 @@ pub const Scanner = struct {
             return 0;
         }
 
-        return self.source[self.current];
+        return self.start[self.current];
     }
 
     fn peekNext(self: *Self) u8 {
@@ -235,7 +241,7 @@ pub const Scanner = struct {
             return 0;
         }
 
-        return self.source[self.current + 1];
+        return self.start[self.current + 1];
     }
 
     fn match(self: *Self, expected: u8) bool {
@@ -243,7 +249,7 @@ pub const Scanner = struct {
             return false;
         }
 
-        if (self.source[self.current] != expected) {
+        if (self.start[self.current] != expected) {
             return false;
         }
 
@@ -252,12 +258,19 @@ pub const Scanner = struct {
     }
 
     fn makeToken(self: *Self, typ: TokenType) Token {
-        return .{
-            .type = typ,
-            .start = self.start,
-            .length = self.current - self.start,
-            .line = self.line,
-        };
+        return Token.init(
+            typ,
+            self.start[0..self.current],
+            self.line,
+        );
+    }
+
+    fn makeLiteral(self: *Self, typ: TokenType, literal: []const u8) Token {
+        return Token.init(
+            typ,
+            literal,
+            self.line,
+        );
     }
 
     fn skipWhitespace(self: *Self) void {
@@ -297,9 +310,8 @@ pub const Scanner = struct {
 
         _ = self.advance();
 
-        return self.makeToken(.{
-            .string = self.source[self.start + 1 .. self.current - 1],
-        });
+        const s = self.start[1 .. self.current - 1];
+        return self.makeLiteral(.{ .string = s }, s);
     }
 
     fn number(self: *Self) !Token {
@@ -315,9 +327,8 @@ pub const Scanner = struct {
             }
         }
 
-        return self.makeToken(.{
-            .number = try std.fmt.parseFloat(f64, self.source[self.start..self.current]),
-        });
+        const s = self.start[0..self.current];
+        return self.makeLiteral(.{ .number = try std.fmt.parseFloat(f64, s) }, s);
     }
 
     fn identifier(self: *Self) !Token {
@@ -325,20 +336,20 @@ pub const Scanner = struct {
             _ = self.advance();
         }
 
-        const text = self.source[self.start..self.current];
+        const text = self.start[0..self.current];
 
         return self.makeToken(self.identifierType(text));
     }
 
     fn identifierType(self: *Self, text: []const u8) TokenType {
-        const c = self.source[self.start];
+        const c = self.start[0];
         switch (c) {
             'a' => return self.checkKeyword(1, 2, "nd", .@"and", text),
             'c' => return self.checkKeyword(1, 4, "lass", .class, text),
             'e' => return self.checkKeyword(1, 3, "lse", .@"else", text),
             'f' => {
-                if (self.current - self.start > 1) {
-                    const c2 = self.source[self.start + 1];
+                if (self.current > 1) {
+                    const c2 = self.start[1];
                     switch (c2) {
                         'a' => return self.checkKeyword(2, 3, "lse", .false, text),
                         'o' => return self.checkKeyword(2, 1, "r", .@"for", text),
@@ -354,8 +365,8 @@ pub const Scanner = struct {
             'r' => return self.checkKeyword(1, 5, "eturn", .@"return", text),
             's' => return self.checkKeyword(1, 4, "uper", .super, text),
             't' => {
-                if (self.current - self.start > 1) {
-                    const c2 = self.source[self.start + 1];
+                if (self.current > 1) {
+                    const c2 = self.start[1];
                     switch (c2) {
                         'h' => return self.checkKeyword(2, 2, "is", .this, text),
                         'r' => return self.checkKeyword(2, 2, "ue", .true, text),
@@ -372,13 +383,14 @@ pub const Scanner = struct {
     }
 
     fn checkKeyword(self: *Self, start: usize, length: usize, rest: []const u8, typ: TokenType, text: []const u8) TokenType {
-        const s = self.source[self.start + start .. self.start + start + length];
+        // const s = self.source[self.start + start .. self.start + start + length];
+        const s = self.start[start .. start + length];
         // std.debug.print("s: {s}\n", .{s});
         // std.debug.print("rest: {s}\n", .{rest});
         // std.debug.print("current: {d} -> {c}\n", .{ self.current, self.source[self.current] });
         // std.debug.print("left: {d}\n", .{self.current - self.start});
         // std.debug.print("right: {d}\n", .{start + length});
-        if (self.current - self.start == start + length and std.mem.eql(u8, s, rest)) {
+        if (self.current == start + length and std.mem.eql(u8, s, rest)) {
             // std.debug.print("matched\n", .{});
             return typ;
         }
