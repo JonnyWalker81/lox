@@ -565,9 +565,7 @@ pub const Compiler = struct {
 
     fn identifiersEqual(self: *Self, a: scanner.Token, b: scanner.Token) bool {
         _ = self;
-        // const aStr = self.scnr.source[a.start .. a.start + a.length];
         const aStr = a.start;
-        // const bStr = self.scnr.source[b.start .. b.start + b.length];
         const bStr = b.start;
         return aStr.len == bStr.len and
             std.mem.eql(u8, aStr, bStr);
@@ -785,6 +783,22 @@ pub const Compiler = struct {
         classCompiler.enclosing = self.currentClass;
         self.currentClass = &classCompiler;
         defer self.currentClass = self.currentClass.?.enclosing;
+
+        if (try self.match(.less)) {
+            _ = try self.consume(@intFromEnum(scanner.TokenType.identifier), "Expect superclass name.");
+            try self.variable(false);
+
+            if (self.identifiersEqual(className, self.parser.previous)) {
+                self.err("A class cannot inherit from itself.");
+            }
+
+            // try self.beginScope();
+            // try self.addLocal(self.parser.previous);
+            // try self.defineVariable(0);
+
+            try self.namedVariable(className, false);
+            try self.emitByte(@intFromEnum(chunk.OpCode.OpInherit));
+        }
 
         try self.namedVariable(className, false);
         _ = try self.consume(@intFromEnum(scanner.TokenType.left_brace), "Expect '{' before class body.");
