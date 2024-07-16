@@ -118,6 +118,7 @@ pub const GCAllocator = struct {
         self.markTable(&self.vm.globals);
 
         self.markCompilerRoots();
+        self.markObject(&self.vm.initString.obj);
 
         for (0..self.vm.frameCount) |i| {
             self.markObject(&self.vm.frames[i].closure.obj);

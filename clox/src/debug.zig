@@ -43,6 +43,9 @@ pub fn disassembleInstruction(c: chunk.Chunk, offset: usize) usize {
         .OpCall => {
             return byteInstruction("OP_CALL", c, offset);
         },
+        .OpInvoke => {
+            return invokeInstruction("OP_INVOKE", c, offset);
+        },
         .OpClosure => {
             var o = offset + 1;
             const constant: u8 = c.code.items[o];
@@ -188,6 +191,15 @@ fn constantInstruction(name: []const u8, c: chunk.Chunk, offset: usize) usize {
     std.debug.print("'\n", .{});
     // }
     return offset + 2;
+}
+
+fn invokeInstruction(name: []const u8, c: chunk.Chunk, offset: usize) usize {
+    const constant: u8 = c.code.items[offset + 1];
+    const argCount: u8 = c.code.items[offset + 2];
+    std.debug.print("{s} ({d} args) {d:4} ", .{ name, argCount, constant });
+    printValue(c.constants.items[constant]);
+    std.debug.print("\n", .{});
+    return offset + 3;
 }
 
 pub fn printValue(val: value.Value) void {

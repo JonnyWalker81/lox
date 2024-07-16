@@ -13,46 +13,24 @@ outer();
 
 // print clock; // expect: <native fn>
 
-class Brioche {}
-print Brioche;
-
-print Brioche();
-
-class Pair {}
-
-class Brunch {
-  bacon() {}
-  eggs() {}
-}
-
-var pair = Pair();
-pair.first = 1;
-pair.second = 2;
-print pair.first + pair.second; // 3.
-
 var a = "hello ";
 var b = "world!";
 var hello = a + b;
 print hello;
 print 123;
 
-class Scone {
-  topping(first, second) {
-    print "scone with " + first + " and " + second;
+class CoffeeMaker {
+  init(coffee) {
+    this.coffee = coffee;
+  }
+
+  brew() {
+    print "Enjoy your cup of " + this.coffee;
+
+    // No reusing the grounds!
+    this.coffee = nil;
   }
 }
 
-var scone = Scone();
-scone.topping("berries", "cream");
-
-class Nested {
-  method() {
-    fun function() {
-      print this;
-    }
-
-    function();
-  }
-}
-
-Nested().method();
+var maker = CoffeeMaker("coffee and chicory");
+maker.brew();

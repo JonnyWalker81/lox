@@ -73,6 +73,7 @@ pub const VM = struct {
     openUpvalues: ?*value.Upvalue = null,
     objects: ?*value.Obj = null,
     grayStack: std.ArrayList(*value.Obj) = undefined,
+    initString: *value.String = undefined,
 
     pub fn init(allocator: std.mem.Allocator) Self {
         var stack: [StackSize]value.Value = undefined;
@@ -101,6 +102,7 @@ pub const VM = struct {
         self.grayStack = std.ArrayList(*value.Obj).init(self.allocator);
         self.strings = std.StringHashMap(*value.String).init(self.gcAllocator.allocator());
         self.globals = std.AutoHashMap(*value.String, value.Value).init(self.gcAllocator.allocator());
+        self.initString = value.String.init(self, "init") catch unreachable;
 
         self.defineNative("clock", clockNative) catch unreachable;
     }
@@ -191,13 +193,6 @@ pub const VM = struct {
 
     fn callValue(self: *Self, callee: value.Value, argCount: u8) bool {
         switch (callee.asObject().type) {
-            // .function => |f| {
-            //     // if (f.arity != argCount) {
-            //     //     self.runtimeError("Expected {d} arguments but got {d}", .{ f.arity, argCount });
-            //     //     return false;
-            //     // }
-            //     return self.call(f, argCount);
-            // },
             .native => {
                 const native = callee.asObject().asNative().function;
                 // if (result.isError()) {
@@ -218,6 +213,14 @@ pub const VM = struct {
                 const class = callee.asObject().asClass();
                 const instance = value.Instance.init(self, class) catch @panic("could not create instance.");
                 self.stack[self.stackTop - argCount - 1] = instance.obj.value();
+
+                if (class.methods.get(self.initString)) |initializer| {
+                    return self.call(initializer.asObject().asClosure(), argCount);
+                } else if (argCount != 0) {
+                    self.runtimeError("Expected 0 arguments but got {d}.", .{argCount});
+                    return false;
+                }
+
                 return true;
             },
             .closure => {
@@ -229,6 +232,33 @@ pub const VM = struct {
                 return false;
             },
         }
+    }
+
+    fn invokeFromClass(self: *Self, class: *value.Class, name: *value.String, argCount: u8) bool {
+        if (class.methods.get(name)) |method| {
+            return self.call(method.asObject().asClosure(), argCount);
+        }
+
+        self.runtimeError("Undefined property '{s}'", .{name.bytes});
+        return false;
+    }
+
+    fn invoke(self: *Self, name: *value.String, argCount: u8) bool {
+        const receiver = self.peek(argCount);
+
+        if (!receiver.isObjType(.instance)) {
+            self.runtimeError("Only instances have methods.", .{});
+            return false;
+        }
+
+        const instance = receiver.asObject().asInstance();
+
+        if (instance.fields.get(name)) |val| {
+            self.stack[self.stackTop - argCount - 1] = val;
+            return self.callValue(val, argCount);
+        }
+
+        return self.invokeFromClass(instance.class, name, argCount);
     }
 
     fn bindMethod(self: *Self, class: *value.Class, name: *value.String) !bool {
@@ -403,6 +433,14 @@ pub const VM = struct {
                     const argCount = self.readByte();
                     const callee = self.peek(argCount);
                     if (!self.callValue(callee, argCount)) {
+                        return InterpreterError.runtime_error;
+                    }
+                    f = &self.frames[self.frameCount - 1];
+                },
+                .OpInvoke => {
+                    const method = self.readString();
+                    const argCount = self.readByte();
+                    if (!self.invoke(method, argCount)) {
                         return InterpreterError.runtime_error;
                     }
                     f = &self.frames[self.frameCount - 1];

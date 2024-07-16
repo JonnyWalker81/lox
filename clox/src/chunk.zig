@@ -11,6 +11,7 @@ pub const OpCode = enum(u8) {
     OpJumpIfFalse,
     OpLoop,
     OpCall,
+    OpInvoke,
     OpClosure,
     OpCloseUpvalue,
     OpReturn,

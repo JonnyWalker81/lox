@@ -100,8 +100,19 @@ pub const Upvalue = struct {
 
 const FunctionType = enum {
     function,
+    initializer,
     method,
     script,
+};
+
+pub const ClassCompiler = struct {
+    const Self = @This();
+
+    enclosing: ?*ClassCompiler = null,
+
+    pub fn init() ClassCompiler {
+        return .{};
+    }
 };
 
 pub const Compiler = struct {
@@ -117,6 +128,7 @@ pub const Compiler = struct {
     upvalues: [UpvaluesCount]Upvalue = undefined,
     scopeDepth: i32 = 0,
     enclosing: ?*Compiler = null,
+    currentClass: ?*ClassCompiler = null,
     vm: *VM = undefined,
 
     pub fn init(vm: *VM, enclosing: ?*Compiler, typ: FunctionType) Compiler {
@@ -134,6 +146,7 @@ pub const Compiler = struct {
         if (enclosing) |e| {
             c.scnr = e.scnr;
             c.parser = e.parser;
+            c.currentClass = e.currentClass;
         }
 
         if (typ != .script) {
@@ -355,13 +368,11 @@ pub const Compiler = struct {
         if (canAssign and try self.match(.equal)) {
             try self.expression();
             try self.emitBytes(@intFromEnum(chunk.OpCode.OpSetProperty), nameConstant);
-        }
-        // else if (try self.match(.left_paren)) {
-        //     const argCount = try self.argumentList();
-        //     try self.emitBytes(@intFromEnum(chunk.OpCode.OpInvoke), nameConstant);
-        //     try self.emitByte(argCount);
-        // }
-        else {
+        } else if (try self.match(.left_paren)) {
+            const argCount = try self.argumentList();
+            try self.emitBytes(@intFromEnum(chunk.OpCode.OpInvoke), nameConstant);
+            try self.emitByte(argCount);
+        } else {
             try self.emitBytes(@intFromEnum(chunk.OpCode.OpGetProperty), nameConstant);
         }
     }
@@ -457,6 +468,11 @@ pub const Compiler = struct {
     }
 
     fn this(self: *Self, _: bool) !void {
+        if (self.currentClass == null) {
+            self.err("Cannot use 'this' outside of a class.");
+            return;
+        }
+
         // if (self.funcType == .function) {
         //     self.err("Cannot use 'this' outside of a method.");
         //     return;
@@ -740,7 +756,11 @@ pub const Compiler = struct {
         const methodName = self.parser.previous;
         const constant = try self.identifierConstant(methodName);
 
-        const fType = .method;
+        var fType: FunctionType = .method;
+        if (std.mem.eql(u8, self.parser.previous.start, "init")) {
+            fType = .initializer;
+        }
+
         try self.func(fType);
         try self.emitBytes(@intFromEnum(chunk.OpCode.OpMethod), constant);
 
@@ -760,6 +780,11 @@ pub const Compiler = struct {
 
         try self.emitBytes(@intFromEnum(chunk.OpCode.OpClass), nameConstant);
         try self.defineVariable(nameConstant);
+
+        var classCompiler = ClassCompiler.init();
+        classCompiler.enclosing = self.currentClass;
+        self.currentClass = &classCompiler;
+        defer self.currentClass = self.currentClass.?.enclosing;
 
         try self.namedVariable(className, false);
         _ = try self.consume(@intFromEnum(scanner.TokenType.left_brace), "Expect '{' before class body.");
@@ -888,6 +913,10 @@ pub const Compiler = struct {
         if (try self.match(.semicolon)) {
             try self.emitReturn();
         } else {
+            if (self.funcType == .initializer) {
+                self.err("Cannot return a value from an initializer.");
+            }
+
             try self.expression();
             _ = try self.consume(@intFromEnum(scanner.TokenType.semicolon), "Expect ';' after return value.");
             try self.emitByte(@intFromEnum(chunk.OpCode.OpReturn));
@@ -965,7 +994,12 @@ pub const Compiler = struct {
     }
 
     fn emitReturn(self: *Self) !void {
-        try self.emitByte(@intFromEnum(chunk.OpCode.OpNil));
+        if (self.funcType == .initializer) {
+            try self.emitBytes(@intFromEnum(chunk.OpCode.OpGetLocal), 0);
+        } else {
+            try self.emitByte(@intFromEnum(chunk.OpCode.OpNil));
+        }
+
         try self.emitByte(@intFromEnum(chunk.OpCode.OpReturn));
     }
 
