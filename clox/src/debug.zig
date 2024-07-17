@@ -43,6 +43,9 @@ pub fn disassembleInstruction(c: chunk.Chunk, offset: usize) usize {
         .OpCall => {
             return byteInstruction("OP_CALL", c, offset);
         },
+        .OpSuperInvoke => {
+            return invokeInstruction("OP_SUPER_INVOKE", c, offset);
+        },
         .OpInvoke => {
             return invokeInstruction("OP_INVOKE", c, offset);
         },
@@ -73,6 +76,9 @@ pub fn disassembleInstruction(c: chunk.Chunk, offset: usize) usize {
         },
         .OpClass => {
             return constantInstruction("OP_CLASS", c, offset);
+        },
+        .OpInherit => {
+            return simpleInstruction("OP_INHERIT", offset);
         },
         .OpMethod => {
             return constantInstruction("OP_METHOD", c, offset);
@@ -118,6 +124,9 @@ pub fn disassembleInstruction(c: chunk.Chunk, offset: usize) usize {
         },
         .OpSetProperty => {
             return constantInstruction("OP_SET_PROPERTY", c, offset);
+        },
+        .OpGetSuper => {
+            return constantInstruction("OP_GET_SUPER", c, offset);
         },
         .OpEqual => {
             return simpleInstruction("OP_EQUAL", offset);

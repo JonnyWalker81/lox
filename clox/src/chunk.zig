@@ -12,6 +12,7 @@ pub const OpCode = enum(u8) {
     OpLoop,
     OpCall,
     OpInvoke,
+    OpSuperInvoke,
     OpClosure,
     OpCloseUpvalue,
     OpReturn,
@@ -27,6 +28,7 @@ pub const OpCode = enum(u8) {
     OpSetGlobal,
     OpGetUpvalue,
     OpSetUpvalue,
+    OpGetSuper,
     OpEqual,
     OpGetProperty,
     OpSetProperty,
@@ -38,6 +40,7 @@ pub const OpCode = enum(u8) {
     OpDivide,
     OpNot,
     OpClass,
+    OpInherit,
     OpMethod,
 };
 

@@ -235,6 +235,13 @@ pub const VM = struct {
     }
 
     fn invokeFromClass(self: *Self, class: *value.Class, name: *value.String, argCount: u8) bool {
+        std.debug.print("invokeFromClass: {s} -> {s}\n", .{ class.name.bytes, name.bytes });
+        std.debug.print("   methods: {d}\n", .{class.methods.count()});
+        var iter = class.methods.iterator();
+        while (iter.next()) |entry| {
+            std.debug.print("   method: {s}\n", .{entry.key_ptr.*.bytes});
+        }
+
         if (class.methods.get(name)) |method| {
             return self.call(method.asObject().asClosure(), argCount);
         }
@@ -445,6 +452,19 @@ pub const VM = struct {
                     }
                     f = &self.frames[self.frameCount - 1];
                 },
+                .OpSuperInvoke => {
+                    const method = self.readString();
+                    const argCount = self.readByte();
+                    const superClass = self.pop().asObject().asClass();
+                    std.debug.print("super invoke (superClass): {any}\n", .{superClass});
+
+                    std.debug.print("super invoke: {s}\n", .{method.bytes});
+                    if (!self.invokeFromClass(superClass, method, argCount)) {
+                        return InterpreterError.runtime_error;
+                    }
+
+                    f = &self.frames[self.frameCount - 1];
+                },
                 .OpClosure => {
                     const function = self.read_constant();
                     const closure = try value.Closure.init(self, function.asObject().asFunction());
@@ -576,6 +596,14 @@ pub const VM = struct {
                     _ = self.pop();
                     self.push(val);
                 },
+                .OpGetSuper => {
+                    const name = self.readString();
+                    const superClass = self.pop().asObject().asClass();
+
+                    if (!try self.bindMethod(superClass, name)) {
+                        return InterpreterError.runtime_error;
+                    }
+                },
                 .OpEqual => {
                     const b = self.pop();
                     const a = self.pop();
@@ -609,6 +637,23 @@ pub const VM = struct {
                     const className = self.readString();
                     const class = try value.Class.init(self, className);
                     self.push(class.obj.value());
+                },
+                .OpInherit => {
+                    const superClass = self.peek(1);
+                    if (!superClass.isObjType(.class)) {
+                        self.runtimeError("Superclass must be a class.", .{});
+                        return InterpreterError.runtime_error;
+                    }
+
+                    const super = superClass.asObject().asClass();
+                    const subClass = self.peek(0).asObject().asClass();
+                    var iter = super.methods.iterator();
+                    std.debug.print("subClasss: {s}\n", .{subClass.name.bytes});
+                    while (iter.next()) |entry| {
+                        std.debug.print("adding method...{s}\n", .{entry.key_ptr.*.bytes});
+                        try subClass.methods.put(entry.key_ptr.*, entry.value_ptr.*);
+                    }
+                    _ = self.pop();
                 },
                 .OpMethod => {
                     try self.defineMethod(self.readString());

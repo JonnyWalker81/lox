@@ -1,36 +1,17 @@
-fun outer() {
-    // var x = "test inner";
-  // fun inner() {
-    // print 123;
-   // }
-  // inner();
-  print 123;
-}
-outer();
-
-// fun foo() {}
-// print foo; // expect: <fn foo>
-
-// print clock; // expect: <native fn>
-
-var a = "hello ";
-var b = "world!";
-var hello = a + b;
-print hello;
-print 123;
-
-class CoffeeMaker {
-  init(coffee) {
-    this.coffee = coffee;
-  }
-
-  brew() {
-    print "Enjoy your cup of " + this.coffee;
-
-    // No reusing the grounds!
-    this.coffee = nil;
-  }
+class Base {
+  toString() { return "Base"; }
 }
 
-var maker = CoffeeMaker("coffee and chicory");
-maker.brew();
+class Derived < Base {
+  getClosure() {
+    fun closure() {
+      return super.toString();
+    }
+    return closure;
+  }
+
+  toString() { return "Derived"; }
+}
+
+var closure = Derived().getClosure();
+print closure(); // expect: Base

@@ -62,7 +62,7 @@ const rules = [_]ParseRule{
     .{ .prefixFn = null, .infixFn = Compiler.or_, .precedence = .@"or" }, // .or
     .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .print
     .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .return
-    .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .super
+    .{ .prefixFn = Compiler.super, .infixFn = null, .precedence = .none }, // .super
     .{ .prefixFn = Compiler.this, .infixFn = null, .precedence = .none }, // .this
     .{ .prefixFn = Compiler.literal, .infixFn = null, .precedence = .none }, // .true
     .{ .prefixFn = null, .infixFn = null, .precedence = .none }, // .var
@@ -109,6 +109,7 @@ pub const ClassCompiler = struct {
     const Self = @This();
 
     enclosing: ?*ClassCompiler = null,
+    hasSuperclass: bool = false,
 
     pub fn init() ClassCompiler {
         return .{};
@@ -467,6 +468,38 @@ pub const Compiler = struct {
         try self.namedVariable(self.parser.previous, canAssign);
     }
 
+    fn syntheticToken(text: []const u8) scanner.Token {
+        return .{
+            .start = text,
+        };
+    }
+
+    fn super(self: *Self, _: bool) !void {
+        if (self.currentClass == null) {
+            self.err("Cannot use 'super' outside of a class.");
+            // return;
+        } else if (!self.currentClass.?.hasSuperclass) {
+            self.err("Cannot use 'super' in a class with no superclass.");
+            // return;
+        }
+
+        _ = try self.consume(@intFromEnum(scanner.TokenType.dot), "Expect '.' after 'super'.");
+        _ = try self.consume(@intFromEnum(scanner.TokenType.identifier), "Expect superclass method name.");
+        const name = self.parser.previous;
+        const nameConstant = try self.identifierConstant(name);
+
+        try self.namedVariable(syntheticToken("this"), false);
+        if (try self.match(.left_paren)) {
+            const argCount = try self.argumentList();
+            try self.namedVariable(syntheticToken("super"), false);
+            try self.emitBytes(@intFromEnum(chunk.OpCode.OpSuperInvoke), nameConstant);
+            try self.emitByte(argCount);
+        } else {
+            try self.namedVariable(syntheticToken("super"), false);
+            try self.emitBytes(@intFromEnum(chunk.OpCode.OpGetSuper), nameConstant);
+        }
+    }
+
     fn this(self: *Self, _: bool) !void {
         if (self.currentClass == null) {
             self.err("Cannot use 'this' outside of a class.");
@@ -792,12 +825,13 @@ pub const Compiler = struct {
                 self.err("A class cannot inherit from itself.");
             }
 
-            // try self.beginScope();
-            // try self.addLocal(self.parser.previous);
-            // try self.defineVariable(0);
+            try self.beginScope();
+            try self.addLocal(syntheticToken("super"));
+            try self.defineVariable(0);
 
             try self.namedVariable(className, false);
             try self.emitByte(@intFromEnum(chunk.OpCode.OpInherit));
+            classCompiler.hasSuperclass = true;
         }
 
         try self.namedVariable(className, false);
@@ -809,6 +843,10 @@ pub const Compiler = struct {
 
         _ = try self.consume(@intFromEnum(scanner.TokenType.right_brace), "Expect '}' after class body.");
         try self.emitByte(@intFromEnum(chunk.OpCode.OpPop));
+
+        if (classCompiler.hasSuperclass) {
+            try self.endScope();
+        }
     }
 
     fn funDeclaration(self: *Self) !void {
