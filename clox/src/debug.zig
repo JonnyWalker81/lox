@@ -64,7 +64,7 @@ pub fn disassembleInstruction(c: chunk.Chunk, offset: usize) usize {
                 o += 1;
                 const index: u8 = c.code.items[o];
                 o += 1;
-                std.debug.print("{d:4}      |                     {s} {d}\n", .{ offset - 2, if (isLocal == 1) "local" else "upvalue", index });
+                std.debug.print("{d:4}      |                     {s} {d}\n", .{ o - 2, if (isLocal == 1) "local" else "upvalue", index });
             }
             return o;
         },

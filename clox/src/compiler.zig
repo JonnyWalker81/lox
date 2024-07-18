@@ -437,6 +437,7 @@ pub const Compiler = struct {
             setOp = chunk.OpCode.OpSetLocal;
         } else {
             constant = try self.resolveUpvalue(name);
+            std.debug.print("Upvalue: {s}: {d}\n", .{ name.start, constant });
             if (constant != -1) {
                 getOp = chunk.OpCode.OpGetUpvalue;
                 setOp = chunk.OpCode.OpSetUpvalue;
@@ -458,7 +459,7 @@ pub const Compiler = struct {
             //     std.debug.print("Outer variable: {d}\n", .{constant});
             //     constant = 0;
             // }
-            // std.debug.print("Op to Constant: (namedVariable): {any} -> {d}\n", .{ getOp, constant });
+            std.debug.print("Op to Constant: (namedVariable): {any} -> {d}\n", .{ getOp, constant });
 
             try self.emitBytes(@intFromEnum(getOp), @intCast(constant));
         }

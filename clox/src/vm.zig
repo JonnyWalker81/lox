@@ -295,7 +295,7 @@ pub const VM = struct {
             return upvalue.?;
         }
 
-        const createdUpvalue = try value.Upvalue.init(self, local);
+        const createdUpvalue = try value.Upvalue.initUpval(self, local);
         createdUpvalue.next = upvalue;
 
         if (prevUpvalue == null) {
@@ -406,7 +406,6 @@ pub const VM = struct {
             if (build_options.debug_trace_execution) {
                 // std.debug.print("tracing execution...\n", .{});
                 // std.debug.print("chnk: {any} ip: {d} ", .{ frame, frame.ip });
-                _ = debug.disassembleInstruction(f.closure.function.chnk, f.ip);
 
                 std.debug.print("          ", .{});
                 for (0..self.stackTop) |i| {
@@ -415,6 +414,7 @@ pub const VM = struct {
                     std.debug.print(" ]", .{});
                 }
                 std.debug.print("\n", .{});
+                _ = debug.disassembleInstruction(f.closure.function.chnk, f.ip);
             }
             const instruction: chunk.OpCode = @enumFromInt(self.readByte());
             switch (instruction) {
@@ -442,6 +442,7 @@ pub const VM = struct {
                     if (!self.callValue(callee, argCount)) {
                         return InterpreterError.runtime_error;
                     }
+
                     f = &self.frames[self.frameCount - 1];
                 },
                 .OpInvoke => {
@@ -450,16 +451,18 @@ pub const VM = struct {
                     if (!self.invoke(method, argCount)) {
                         return InterpreterError.runtime_error;
                     }
+
                     f = &self.frames[self.frameCount - 1];
                 },
                 .OpSuperInvoke => {
                     const method = self.readString();
                     const argCount = self.readByte();
-                    const superClass = self.pop().asObject().asClass();
-                    std.debug.print("super invoke (superClass): {any}\n", .{superClass});
+                    const superClass = self.pop();
+                    const super = superClass.asObject().asClass();
+                    std.debug.print("super invoke (superClass): {any}\n", .{super.obj.type});
 
                     std.debug.print("super invoke: {s}\n", .{method.bytes});
-                    if (!self.invokeFromClass(superClass, method, argCount)) {
+                    if (!self.invokeFromClass(super, method, argCount)) {
                         return InterpreterError.runtime_error;
                     }
 
@@ -467,13 +470,17 @@ pub const VM = struct {
                 },
                 .OpClosure => {
                     const function = self.read_constant();
-                    const closure = try value.Closure.init(self, function.asObject().asFunction());
+                    const func = function.asObject().asFunction();
+                    std.debug.print("closure: {s}\n", .{func.name.?});
+                    const closure = try value.Closure.init(self, func);
                     self.push(closure.obj.value());
                     for (0..closure.upvalues.len) |i| {
                         const isLocal = self.readByte();
                         const index = self.readByte();
                         if (isLocal == 1) {
-                            closure.upvalues[i] = try self.captureValue(&f.slots[f.slot + index]);
+                            const uv = try self.captureValue(&f.slots[f.slot + index]);
+                            std.debug.print("captured upvalue: {any}\n", .{uv});
+                            closure.upvalues[i] = uv;
                         } else {
                             // closure.closure.upvalues[i] = frame.closure.upvalues[index];
                             closure.upvalues[i] = f.closure.upvalues[index];
@@ -555,7 +562,11 @@ pub const VM = struct {
                 },
                 .OpGetUpvalue => {
                     const slot = self.readByte();
-                    self.push(f.closure.upvalues[slot].location.*);
+                    std.debug.print("get upvalue: {d}\n", .{slot});
+                    std.debug.print("upvalue closure: {any}\n", .{f.closure.upvalues});
+                    const val = f.closure.upvalues[slot].location.*;
+                    std.debug.print("get upvalue: {any}\n", .{val});
+                    self.push(val);
                 },
                 .OpSetUpvalue => {
                     const slot = self.readByte();
@@ -636,6 +647,7 @@ pub const VM = struct {
                 .OpClass => {
                     const className = self.readString();
                     const class = try value.Class.init(self, className);
+                    std.debug.print("class: {any}\n", .{className});
                     self.push(class.obj.value());
                 },
                 .OpInherit => {
@@ -646,7 +658,8 @@ pub const VM = struct {
                     }
 
                     const super = superClass.asObject().asClass();
-                    const subClass = self.peek(0).asObject().asClass();
+                    const sub = self.peek(0);
+                    const subClass = sub.asObject().asClass();
                     var iter = super.methods.iterator();
                     std.debug.print("subClasss: {s}\n", .{subClass.name.bytes});
                     while (iter.next()) |entry| {
