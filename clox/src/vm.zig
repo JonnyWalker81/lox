@@ -282,9 +282,16 @@ pub const VM = struct {
     }
 
     fn captureValue(self: *Self, local: *value.Value) !*value.Upvalue {
+        std.debug.print("captureValue function: {any}\n", .{local});
         var prevUpvalue: ?*value.Upvalue = null;
         var upvalue = self.openUpvalues;
+        if (upvalue != null) {
+            std.debug.print("   ==openUpvalues: {any}\n", .{upvalue.?.location});
+        } else {
+            std.debug.print("   ==openUpvalues: null\n", .{});
+        }
         while (upvalue != null and @intFromPtr(upvalue.?.location) > @intFromPtr(local)) : (upvalue = upvalue.?.next) {
+            std.debug.print("   ==upvalue (in loop): {any}\n", .{upvalue.?.location});
             // if (upvalue.location == local) {
             //     return upvalue;
             // }
@@ -295,6 +302,7 @@ pub const VM = struct {
             return upvalue.?;
         }
 
+        std.debug.print("   --captureValue: {any}\n", .{local});
         const createdUpvalue = try value.Upvalue.initUpval(self, local);
         createdUpvalue.next = upvalue;
 
@@ -303,15 +311,21 @@ pub const VM = struct {
         } else {
             prevUpvalue.?.next = createdUpvalue;
         }
+        std.debug.print("   --captureUpValue: {any}\n", .{createdUpvalue});
+        std.debug.print("   --prevUpvalue: {any}\n", .{prevUpvalue});
+        std.debug.print("   --openUpvalues: {any}\n", .{self.openUpvalues});
 
         return createdUpvalue;
     }
 
     fn closeUpvalues(self: *Self, last: *value.Value) void {
+        std.debug.print("closeUpvalues: {any}\n", .{last});
+        std.debug.print("openUpvalues: {any}\n", .{self.openUpvalues});
         while (self.openUpvalues != null and @intFromPtr(self.openUpvalues.?.location) >= @intFromPtr(last)) {
             const upvalue = self.openUpvalues.?;
             upvalue.closed = upvalue.location.*;
             upvalue.location = &upvalue.closed.?;
+            std.debug.print("upvalue location: {any}\n", .{upvalue.location});
             self.openUpvalues = upvalue.next;
         }
     }
@@ -455,6 +469,7 @@ pub const VM = struct {
                     f = &self.frames[self.frameCount - 1];
                 },
                 .OpSuperInvoke => {
+                    std.debug.print("super invoke\n", .{});
                     const method = self.readString();
                     const argCount = self.readByte();
                     const superClass = self.pop();
@@ -471,21 +486,36 @@ pub const VM = struct {
                 .OpClosure => {
                     const function = self.read_constant();
                     const func = function.asObject().asFunction();
-                    std.debug.print("closure: {s}\n", .{func.name.?});
+                    std.debug.print("closure func: {s}\n", .{func.name.?});
                     const closure = try value.Closure.init(self, func);
-                    self.push(closure.obj.value());
                     for (0..closure.upvalues.len) |i| {
                         const isLocal = self.readByte();
                         const index = self.readByte();
                         if (isLocal == 1) {
-                            const uv = try self.captureValue(&f.slots[f.slot + index]);
-                            std.debug.print("captured upvalue: {any}\n", .{uv});
+                            std.debug.print("capture index: {any}\n", .{index});
+                            for (0..5) |ii| {
+                                std.debug.print("captured local: {any}\n", .{f.slots[ii]});
+                            }
+
+                            for (0..5) |ii| {
+                                std.debug.print("stack: {any}\n", .{self.stack[ii]});
+                            }
+
+                            std.debug.print("stackTop: {d}\n", .{self.stackTop});
+                            std.debug.print("  slot: {d}\n", .{f.slot});
+                            const idx = f.slot + index;
+                            std.debug.print("  idx: {d}\n", .{idx});
+                            const v = &f.slots[f.slot + index];
+                            std.debug.print(" ==captured local value: {any}\n", .{v});
+                            const uv = try self.captureValue(v);
+                            std.debug.print(" -> -> captured upvalue: {any}\n", .{uv});
                             closure.upvalues[i] = uv;
                         } else {
                             // closure.closure.upvalues[i] = frame.closure.upvalues[index];
                             closure.upvalues[i] = f.closure.upvalues[index];
                         }
                     }
+                    self.push(closure.obj.value());
                     // for (0..closure.function.arity) |i| {
                     //     const val = self.peek(closure.function.arity - i);
                     //     self.stack[self.stackTop - i - 1] = val;
@@ -570,7 +600,9 @@ pub const VM = struct {
                 },
                 .OpSetUpvalue => {
                     const slot = self.readByte();
-                    f.closure.upvalues[slot].location.* = self.peek(0);
+                    const p = self.peek(0);
+                    std.debug.print("set upvalue: {any}\n", .{p});
+                    f.closure.upvalues[slot].location.* = p;
                 },
                 .OpGetProperty => {
                     if (!self.peek(0).isObjType(.instance)) {
@@ -766,9 +798,12 @@ pub const VM = struct {
 
     fn read_constant(self: *Self) value.Value {
         const frame = &self.frames[self.frameCount - 1];
+        std.debug.print("read_constant: {any}\n", .{frame.closure.function.chnk.constants.items});
         const b = self.readByte();
 
-        return frame.closure.function.chnk.constants.items[b];
+        const c = frame.closure.function.chnk.constants.items[b];
+        std.debug.print("read_constant val: {any}\n", .{c});
+        return c;
     }
 
     fn readString(self: *Self) *value.String {
