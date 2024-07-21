@@ -629,7 +629,7 @@ pub const Compiler = struct {
         const upvalueCount = self.function.upvalueCount;
         // var upvalue = self.function.functionValue().upvalues;
         for (0..upvalueCount) |i| {
-            const upvalue = &self.upvalues[i];
+            const upvalue = self.upvalues[i];
             if (upvalue.index == index and upvalue.isLocal == isLocal) {
                 return @intCast(i);
             }
@@ -640,7 +640,7 @@ pub const Compiler = struct {
             return 0;
         }
 
-        std.debug.print(" -- addUpvalue count: {d}, index: {d}\n", .{ upvalueCount, index });
+        std.debug.print(" -- addUpvalue count: {}, index: {d}\n", .{ isLocal, index });
         // upvalue = value.Upvalue.init(self.arena.allocator());
         self.upvalues[upvalueCount].index = @intCast(index);
         self.upvalues[upvalueCount].isLocal = isLocal;
@@ -789,7 +789,6 @@ pub const Compiler = struct {
         try compiler.block();
 
         const f = try compiler.endCompiler();
-        @memcpy(&self.upvalues, &compiler.upvalues);
         try self.emitBytes(@intFromEnum(chunk.OpCode.OpClosure), try self.makeConstant(f.obj.value()));
 
         std.debug.print("Upvalue count (func): {d}\n", .{f.upvalueCount});
