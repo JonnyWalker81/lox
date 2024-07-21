@@ -149,7 +149,6 @@ pub const String = struct {
     }
 
     pub fn deinit(self: *Self, vm: *VM) void {
-        std.debug.print("deinit string\n", .{});
         // _ = self;
         // _ = vm;
         vm.allocator.free(self.bytes);
@@ -197,7 +196,6 @@ pub const Function = struct {
     }
 
     pub fn deinit(self: *Self, vm: *VM) void {
-        std.debug.print("deinit function\n", .{});
         // _ = self;
         // _ = vm;
         self.chnk.deinit();
@@ -233,7 +231,6 @@ pub const Native = struct {
     }
 
     pub fn deinit(self: *Self, vm: *VM) void {
-        std.debug.print("deinit native\n", .{});
         vm.allocator.destroy(self);
     }
 };
@@ -246,7 +243,6 @@ pub const Closure = struct {
     upvalues: []*Upvalue,
 
     pub fn init(vm: *VM, function: *Function) !*Self {
-        std.debug.print("init closure: {any}\n", .{function.name});
         const upvalues = vm.allocator.alloc(*Upvalue, function.upvalueCount) catch unreachable;
         @memset(upvalues, undefined);
 
@@ -262,7 +258,6 @@ pub const Closure = struct {
     }
 
     pub fn deinit(self: *Self, vm: *VM) void {
-        std.debug.print("deinit closure\n", .{});
         vm.allocator.free(self.upvalues);
         vm.allocator.destroy(self);
     }
@@ -278,7 +273,6 @@ pub const Upvalue = struct {
     closed: ?Value = null,
 
     pub fn initUpval(vm: *VM, location: *Value) !*Self {
-        std.debug.print("init upvalue: {any}\n", .{location});
         const obj = try Obj.create(vm, Self, .upvalue);
         const upvalue = obj.asUpvalue();
         upvalue.* = .{
@@ -290,7 +284,6 @@ pub const Upvalue = struct {
     }
 
     pub fn deinit(self: *Self, vm: *VM) void {
-        std.debug.print("deinit upvalue\n", .{});
         vm.allocator.destroy(self);
     }
 
@@ -324,7 +317,6 @@ pub const Class = struct {
     }
 
     pub fn deinit(self: *Self, vm: *VM) void {
-        std.debug.print("deinit class\n", .{});
         self.methods.deinit();
         vm.allocator.destroy(self);
     }
@@ -350,7 +342,6 @@ pub const Instance = struct {
     }
 
     pub fn deinit(self: *Self, vm: *VM) void {
-        std.debug.print("deinit instance\n", .{});
         self.fields.deinit();
         vm.allocator.destroy(self);
     }
@@ -377,7 +368,6 @@ pub const BoundMethod = struct {
     }
 
     pub fn deinit(self: *Self, vm: *VM) void {
-        std.debug.print("deinit bound method\n", .{});
         vm.allocator.destroy(self);
     }
 };

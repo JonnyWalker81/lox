@@ -437,7 +437,6 @@ pub const Compiler = struct {
             setOp = chunk.OpCode.OpSetLocal;
         } else {
             constant = try self.resolveUpvalue(name);
-            std.debug.print("Upvalue: {s}: {d}\n", .{ name.start, constant });
             if (constant != -1) {
                 getOp = chunk.OpCode.OpGetUpvalue;
                 setOp = chunk.OpCode.OpSetUpvalue;
@@ -454,13 +453,6 @@ pub const Compiler = struct {
 
             try self.emitBytes(@intFromEnum(setOp), @intCast(constant));
         } else {
-            // std.debug.print("Op to Constant Set: (namedVariable): {s} == {any} -> {d}\n", .{ s, setOp, constant });
-            // if (std.mem.eql(u8, self.scnr.source[name.start .. name.start + name.length], "outer")) {
-            //     std.debug.print("Outer variable: {d}\n", .{constant});
-            //     constant = 0;
-            // }
-            std.debug.print("Op to Constant: (namedVariable): {any} -> {d}\n", .{ getOp, constant });
-
             try self.emitBytes(@intFromEnum(getOp), @intCast(constant));
         }
     }
@@ -625,7 +617,6 @@ pub const Compiler = struct {
     }
 
     fn addUpvalue(self: *Self, index: i32, isLocal: bool) !i32 {
-        std.debug.print(" -- addUpvalue (begin): {} {}\n", .{ index, isLocal });
         const upvalueCount = self.function.upvalueCount;
         // var upvalue = self.function.functionValue().upvalues;
         for (0..upvalueCount) |i| {
@@ -640,7 +631,6 @@ pub const Compiler = struct {
             return 0;
         }
 
-        std.debug.print(" -- addUpvalue count: {}, index: {d}\n", .{ isLocal, index });
         // upvalue = value.Upvalue.init(self.arena.allocator());
         self.upvalues[upvalueCount].index = @intCast(index);
         self.upvalues[upvalueCount].isLocal = isLocal;
@@ -648,39 +638,26 @@ pub const Compiler = struct {
         // self.function.functionValue().upvalues = upvalue;
 
         self.function.incrementUpvalueCount();
-        std.debug.print("Upvalue func: {any}\n", .{self.function.name});
-        std.debug.print("Upvalue count: {d}\n", .{self.function.upvalueCount});
         return self.function.upvalueCount - 1;
     }
 
     fn resolveUpvalue(self: *Self, name: scanner.Token) !i32 {
-        std.debug.print("resolveUpvalue (begin): {s}\n", .{name.start});
         if (self.enclosing == null) {
-            std.debug.print("resolveUpvalue (encosing == null): {s}\n", .{name.start});
             return -1;
         }
 
         const local = try self.enclosing.?.resolveLocal(name);
         if (local != -1) {
-            std.debug.print(" -- resolveUpvalue (local true): {d}\n", .{local});
             self.enclosing.?.locals[@intCast(local)].isCaptured = true;
-            std.debug.print("resolveUpvalue (end, local): {s}\n", .{name.start});
             return try self.addUpvalue(@intCast(local), true);
         }
 
         const upvalue = try self.enclosing.?.resolveUpvalue(name);
         if (upvalue != -1) {
-            std.debug.print(" -- resolveUpvalue (upvalue true, local false): {d}\n", .{upvalue});
             const up = try self.addUpvalue(@intCast(upvalue), false);
-            for (0..2) |i| {
-                std.debug.print("==resolveUpvalue - Upvalue --- self: {any}\n", .{self.upvalues[i]});
-                std.debug.print("==resolveUpvalue - Upvalue --- enclosing: {any}\n", .{self.enclosing.?.upvalues[i]});
-            }
-            std.debug.print("resolveUpvalue (end, upvalue): {s}\n", .{name.start});
             return up;
         }
 
-        std.debug.print("resolveUpvalue (-1): {s}\n", .{name.start});
         return -1;
     }
 
@@ -791,15 +768,11 @@ pub const Compiler = struct {
         const f = try compiler.endCompiler();
         try self.emitBytes(@intFromEnum(chunk.OpCode.OpClosure), try self.makeConstant(f.obj.value()));
 
-        std.debug.print("Upvalue count (func): {d}\n", .{f.upvalueCount});
         for (0..f.upvalueCount) |i| {
-            std.debug.print("Upvalue --- self(func): {any}\n", .{self.upvalues[i]});
-            std.debug.print("Upvalue (compiler): {any}\n", .{compiler.upvalues[i]});
             const isLocal: u8 = if (compiler.upvalues[i].isLocal) 1 else 0;
             try self.emitByte(isLocal);
             try self.emitByte(@intCast(compiler.upvalues[i].index));
         }
-        std.debug.print("Upvalue count end", .{});
     }
 
     fn method(self: *Self) !void {
