@@ -48,7 +48,7 @@ pub const CallFrame = struct {
 };
 
 pub fn clockNative(_: u8, _: []value.Value) value.Value {
-    return .{ .number = @floatFromInt(@divFloor(std.time.milliTimestamp(), 1000)) };
+    return value.Value.fromNumber(@floatFromInt(@divFloor(std.time.milliTimestamp(), 1000)));
 }
 
 var testFrame: CallFrame = undefined;
@@ -499,13 +499,13 @@ pub const VM = struct {
                     try self.run_constant();
                 },
                 .OpNil => {
-                    self.push(.nil);
+                    self.push(value.Value.nil());
                 },
                 .OpTrue => {
-                    self.push(.{ .bool = true });
+                    self.push(value.Value.fromBool(true));
                 },
                 .OpFalse => {
-                    self.push(.{ .bool = false });
+                    self.push(value.Value.fromBool(false));
                 },
                 .OpPop => {
                     _ = self.pop();
@@ -602,7 +602,7 @@ pub const VM = struct {
                 .OpEqual => {
                     const b = self.pop();
                     const a = self.pop();
-                    self.push(.{ .bool = a.equalTo(b) });
+                    self.push(value.Value.fromBool(a.equalTo(b)));
                 },
                 .OpGreater => {
                     try self.run_binary_op(.greater);
@@ -662,19 +662,21 @@ pub const VM = struct {
             return InterpreterError.runtime_error;
         }
 
+        // std.debug.print("run_binary_op: {}\n", .{op});
+
         const b = self.peek(0);
         const a = self.peek(1);
-        var result: value.Value = .nil;
+        var result: value.Value = value.Value.nil();
         switch (op) {
             .greater => {
-                result = .{ .bool = a.asNumber() > b.asNumber() };
+                result = value.Value.fromBool(a.asNumber() > b.asNumber());
             },
             .less => {
-                result = .{ .bool = a.asNumber() < b.asNumber() };
+                result = value.Value.fromBool(a.asNumber() < b.asNumber());
             },
             .add => {
                 if (a.isNumber() and b.isNumber()) {
-                    result = .{ .number = a.asNumber() + b.asNumber() };
+                    result = value.Value.fromNumber(a.asNumber() + b.asNumber());
                 } else if (a.asObject().is(.string) and b.asObject().is(.string)) {
                     const s = try std.fmt.allocPrint(self.allocator, "{s}{s}", .{ a.asObject().asString(), b.asObject().asString() });
                     defer self.allocator.free(s);
@@ -686,14 +688,14 @@ pub const VM = struct {
                 }
             },
             .subtract => {
-                result = .{ .number = a.asNumber() - b.asNumber() };
+                result = value.Value.fromNumber(a.asNumber() - b.asNumber());
             },
             .multiply => {
-                result = .{ .number = a.asNumber() * b.asNumber() };
+                result = value.Value.fromNumber(a.asNumber() * b.asNumber());
                 self.push(result);
             },
             .divide => {
-                result = .{ .number = a.asNumber() / b.asNumber() };
+                result = value.Value.fromNumber(a.asNumber() / b.asNumber());
                 self.push(result);
             },
         }
@@ -711,19 +713,16 @@ pub const VM = struct {
 
     fn run_not(self: *Self) !void {
         const val = self.pop();
-        self.push(.{ .bool = !val.isFalsey() });
+        self.push(value.Value.fromBool(!val.isFalsey()));
     }
 
     fn run_negate(self: *Self) !void {
-        switch (self.peek(0)) {
-            .number => {
-                const a = self.pop();
-                self.push(.{ .number = -a.number });
-            },
-            else => {
-                self.runtimeError("Operand must be a number", .{});
-                return InterpreterError.runtime_error;
-            },
+        if (self.peek(0).isNumber()) {
+            const a = self.pop();
+            self.push(value.Value.fromNumber(-a.asNumber()));
+        } else {
+            self.runtimeError("Operand must be a number", .{});
+            return InterpreterError.runtime_error;
         }
     }
 
@@ -755,7 +754,7 @@ pub const VM = struct {
 
     fn readString(self: *Self) *value.String {
         const constant = self.read_constant();
-        return constant.obj.asString();
+        return constant.asObjType(.string);
     }
 };
 

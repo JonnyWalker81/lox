@@ -5,6 +5,123 @@ const VM = @import("vm.zig").VM;
 const build_options = @import("build_options");
 const debug = @import("debug.zig");
 
+pub const Value = if (build_options.nan_boxing) NanValue else UnionValue;
+
+pub const NanValue = packed struct {
+    const Self = @This();
+
+    val: u64,
+
+    pub const QNAN: u64 = 0x7FFC000000000000;
+    pub const SIGN_BIT: u64 = 0x8000000000000000;
+
+    pub const TAG_NIL: u64 = 1;
+    pub const TAG_FALSE: u64 = 2;
+    pub const TAG_TRUE: u64 = 3;
+
+    const NIL_VAL = Self{ .val = QNAN | TAG_NIL };
+    const TRUE_VAL = Self{ .val = QNAN | TAG_TRUE };
+    const FALSE_VAL = Self{ .val = QNAN | TAG_FALSE };
+
+    pub fn isNumber(self: Self) bool {
+        return (self.val & QNAN) != QNAN;
+    }
+
+    pub fn isNil(self: Self) bool {
+        return self.val == TAG_NIL;
+    }
+
+    pub fn isBool(self: Self) bool {
+        return (self.val | 1) == TRUE_VAL.val;
+    }
+
+    pub fn isString(self: Self) bool {
+        return (self.data & (QNAN | SIGN_BIT)) == (QNAN | SIGN_BIT);
+    }
+
+    pub fn isObject(self: Self) bool {
+        return (self.val & (QNAN | SIGN_BIT)) == (QNAN | SIGN_BIT);
+    }
+
+    pub fn isObjType(self: Self, objType: Obj.Type) bool {
+        return self.isObject() and self.asObject().type == objType;
+    }
+
+    pub fn asNumber(self: Self) f64 {
+        return @bitCast(self.val);
+    }
+
+    pub fn asBool(self: Self) bool {
+        return self.val == TRUE_VAL.val;
+    }
+
+    pub fn asObject(self: Self) *Obj {
+        return @as(*Obj, @ptrFromInt(@as(usize, @intCast(self.val & ~(SIGN_BIT | QNAN)))));
+    }
+
+    pub fn asObjType(self: Self, comptime objType: Obj.Type) *Obj.ObjType(objType) {
+        return self.asObject().asObjType(objType);
+    }
+
+    pub fn fromBool(b: bool) Self {
+        return if (b) TRUE_VAL else FALSE_VAL;
+    }
+
+    pub fn fromNumber(n: f64) Self {
+        return .{ .val = @as(u64, @bitCast(n)) };
+    }
+
+    pub fn fromObject(obj: *Obj) Self {
+        return .{ .val = @intFromPtr(obj) | (SIGN_BIT | QNAN) };
+    }
+
+    pub fn isFalsey(self: Self) bool {
+        if (self.isBool()) {
+            return !self.asBool();
+        }
+
+        if (self.isNil()) {
+            return true;
+        }
+
+        return false;
+    }
+
+    pub fn nil() Self {
+        return NIL_VAL;
+    }
+
+    pub fn equalTo(self: NanValue, other: NanValue) bool {
+        // Be careful about IEEE NaN equality semantics
+        if (self.isNumber() and other.isNumber()) return self.asNumber() == other.asNumber();
+        return self.val == other.val;
+    }
+
+    pub fn format(
+        self: Self,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = fmt;
+        _ = options;
+
+        if (self.isNumber()) {
+            try writer.print("{d}", .{self.asNumber()});
+        } else if (self.isNil()) {
+            try writer.print("nil", .{});
+        } else if (self.isBool()) {
+            if (self.asBool()) {
+                try writer.print("true", .{});
+            } else {
+                try writer.print("false", .{});
+            }
+        } else if (self.isObject()) {
+            try printObject(writer, self.asObject());
+        }
+    }
+};
+
 pub const Obj = struct {
     const Self = @This();
 
@@ -83,7 +200,7 @@ pub const Obj = struct {
     }
 
     pub fn value(self: *Self) Value {
-        return .{ .obj = self };
+        return Value.fromObject(self);
     }
 
     pub fn asString(self: *Self) *String {
@@ -116,6 +233,46 @@ pub const Obj = struct {
 
     pub fn asBoundMethod(self: *Self) *BoundMethod {
         return @fieldParentPtr("obj", self);
+    }
+
+    pub fn asObjType(self: *Obj, comptime objType: Obj.Type) *ObjType(objType) {
+        return switch (objType) {
+            .instance => self.asInstance(),
+            .class => self.asClass(),
+            .closure => self.asClosure(),
+            .function => self.asFunction(),
+            .boundMethod => self.asBoundMethod(),
+            .native => self.asNative(),
+            // .List => self.asList(),
+            // .Map => self.asMap(),
+            // .Enum => self.asEnum(),
+            .string => self.asString(),
+            .upvalue => self.asUpvalue(),
+        };
+    }
+
+    pub fn nil() Self {
+        return .nil;
+    }
+
+    pub fn fromBool(b: bool) Value {
+        return .{ .bool = b };
+    }
+
+    pub fn ObjType(comptime objType: Obj.Type) type {
+        return switch (objType) {
+            .instance => Instance,
+            .class => Class,
+            .closure => Closure,
+            .function => Function,
+            .boundMethod => BoundMethod,
+            .native => Native,
+            // .List => List,
+            // .Map => Map,
+            // .Enum => Enum,
+            .string => String,
+            .upvalue => Upvalue,
+        };
     }
 };
 
@@ -379,7 +536,7 @@ pub const ValueType = enum {
     obj,
 };
 
-pub const Value = union(ValueType) {
+pub const UnionValue = union(ValueType) {
     const Self = @This();
 
     nil,
@@ -442,6 +599,22 @@ pub const Value = union(ValueType) {
             .nil => return true,
             else => return false,
         }
+    }
+
+    pub fn fromBool(b: bool) Self {
+        return .{ .bool = b };
+    }
+
+    pub fn fromNumber(n: f64) Self {
+        return .{ .number = n };
+    }
+
+    pub fn fromObject(o: *Obj) Self {
+        return .{ .obj = o };
+    }
+
+    pub fn asObjType(self: Self, comptime objType: Obj.Type) *Obj.ObjType(objType) {
+        return self.asObject().asObjType(objType);
     }
 
     pub fn equalTo(self: Self, other: Self) bool {

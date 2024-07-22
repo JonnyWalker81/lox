@@ -30,10 +30,11 @@ pub fn build(b: *std.Build) void {
     // b.installArtifact(lib);
 
     const options = b.addOptions();
-    options.addOption(bool, "debug_trace_execution", true);
-    options.addOption(bool, "debug_print_code", true);
+    options.addOption(bool, "debug_trace_execution", false);
+    options.addOption(bool, "debug_print_code", false);
     options.addOption(bool, "debug_stress_gc", false);
     options.addOption(bool, "debug_log_gc", false);
+    options.addOption(bool, "nan_boxing", false);
 
     const exe = b.addExecutable(.{
         .name = "clox",

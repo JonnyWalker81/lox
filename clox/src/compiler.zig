@@ -400,7 +400,7 @@ pub const Compiler = struct {
 
         const val = self.parser.previous.number();
 
-        const numVal: value.Value = .{ .number = val };
+        const numVal: value.Value = value.Value.fromNumber(val);
 
         try self.emitConstant(numVal);
     }

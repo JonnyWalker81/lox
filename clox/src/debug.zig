@@ -212,19 +212,14 @@ fn invokeInstruction(name: []const u8, c: chunk.Chunk, offset: usize) usize {
 }
 
 pub fn printValue(val: value.Value) void {
-    switch (val) {
-        .number => |n| {
-            std.debug.print("{d}", .{n});
-        },
-        .bool => |b| {
-            std.debug.print("{}", .{b});
-        },
-        .nil => {
-            std.debug.print("nil", .{});
-        },
-        .obj => |o| {
-            printObject(o);
-        },
+    if (val.isNumber()) {
+        std.debug.print("{d}", .{val.asNumber()});
+    } else if (val.isBool()) {
+        std.debug.print("{}", .{val.asBool()});
+    } else if (val.isNil()) {
+        std.debug.print("nil", .{});
+    } else if (val.isObject()) {
+        printObject(val.asObject());
     }
 }
 
