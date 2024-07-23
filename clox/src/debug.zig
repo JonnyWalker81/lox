@@ -211,58 +211,60 @@ fn invokeInstruction(name: []const u8, c: chunk.Chunk, offset: usize) usize {
     return offset + 3;
 }
 
-pub fn printValue(val: value.Value) void {
+pub fn printValue(val: value.Value) !void {
+    const stdout = std.io.getStdOut().writer();
     if (val.isNumber()) {
-        std.debug.print("{d}", .{val.asNumber()});
+        try stdout.print("{d}", .{val.asNumber()});
     } else if (val.isBool()) {
-        std.debug.print("{}", .{val.asBool()});
+        try stdout.print("{}", .{val.asBool()});
     } else if (val.isNil()) {
-        std.debug.print("nil", .{});
+        try stdout.print("nil", .{});
     } else if (val.isObject()) {
-        printObject(val.asObject());
+        try printObject(val.asObject());
     }
 }
 
-pub fn printObject(obj: *value.Obj) void {
+pub fn printObject(obj: *value.Obj) !void {
+    const stdout = std.io.getStdOut().writer();
     switch (obj.type) {
         .string => {
             const s = obj.asString();
-            std.debug.print("{s}", .{s.bytes});
+            try stdout.print("{s}", .{s.bytes});
         },
         .function => {
             if (obj.asFunction().name) |name| {
-                std.debug.print("<fn {s}>", .{name});
+                try stdout.print("<fn {s}>", .{name});
             } else {
-                std.debug.print("<script>", .{});
+                try stdout.print("<script>", .{});
             }
         },
         .native => |_| {
-            std.debug.print("<native fn>", .{});
+            try stdout.print("<native fn>", .{});
         },
         .closure => {
             if (obj.asClosure().function.name) |name| {
-                std.debug.print("<fn {s}>", .{name});
+                try stdout.print("<fn {s}>", .{name});
             } else {
-                std.debug.print("<script>", .{});
+                try stdout.print("<script>", .{});
             }
         },
         .upvalue => |_| {
-            std.debug.print("upvalue", .{});
+            try stdout.print("upvalue", .{});
         },
         .class => {
             const c = obj.asClass();
-            std.debug.print("{s}", .{c.name.bytes});
+            try stdout.print("{s}", .{c.name.bytes});
         },
         .instance => {
             const i = obj.asInstance();
-            std.debug.print("{s} instance", .{i.class.name.bytes});
+            try stdout.print("{s} instance", .{i.class.name.bytes});
         },
         .boundMethod => {
             const bm = obj.asBoundMethod();
             if (bm.method.function.name) |name| {
-                std.debug.print("<fn {s}>", .{name.bytes});
+                try stdout.print("<fn {s}>", .{name.bytes});
             } else {
-                std.debug.print("<script>", .{});
+                try stdout.print("<script>", .{});
             }
         },
     }

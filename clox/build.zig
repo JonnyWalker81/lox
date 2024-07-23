@@ -55,16 +55,32 @@ pub fn build(b: *std.Build) void {
     // such a dependency.
     const run_cmd = b.addRunArtifact(exe);
 
+    const regex = b.dependency("regex", .{ .target = target }).module("regex");
+    const test_runner = b.addExecutable(.{
+        .name = "test-runner",
+        .root_source_file = b.path("src/test_runner.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    test_runner.root_module.addImport("regex", regex);
+
+    b.installArtifact(test_runner);
+
+    const run_test_runner = b.addRunArtifact(test_runner);
+
     // By making the run step depend on the install step, it will be run from the
     // installation directory rather than directly from within the cache directory.
     // This is not necessary, however, if the application depends on other installed
     // files, this ensures they will be present and in the expected location.
     run_cmd.step.dependOn(b.getInstallStep());
+    run_test_runner.step.dependOn(b.getInstallStep());
 
     // This allows the user to pass arguments to the application in the build
     // command itself, like this: `zig build run -- arg1 arg2 etc`
     if (b.args) |args| {
         run_cmd.addArgs(args);
+        run_test_runner.addArgs(args);
     }
 
     // This creates a build step. It will be visible in the `zig build --help` menu,
@@ -72,6 +88,9 @@ pub fn build(b: *std.Build) void {
     // This will evaluate the `run` step rather than the default, which is "install".
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
+
+    const run_test_runner_step = b.step("run-test-runner", "Run the test runner");
+    run_test_runner_step.dependOn(&run_test_runner.step);
 
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.

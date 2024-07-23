@@ -707,8 +707,9 @@ pub const VM = struct {
 
     fn run_print(self: *Self) !void {
         const val = self.pop();
-        debug.printValue(val);
-        std.debug.print("\n", .{});
+        try debug.printValue(val);
+        const stdout = std.io.getStdOut().writer();
+        try stdout.print("\n", .{});
     }
 
     fn run_not(self: *Self) !void {

@@ -29,6 +29,7 @@ pub fn main() !void {
 }
 
 pub fn runFile(allocator: std.mem.Allocator, path: []const u8, v: *vm.VM) !void {
+    std.debug.print("Running {s}\n", .{path});
     const file = try std.fs.cwd().openFile(path, .{});
     defer file.close();
 
@@ -36,7 +37,6 @@ pub fn runFile(allocator: std.mem.Allocator, path: []const u8, v: *vm.VM) !void 
     const source = try file.readToEndAlloc(allocator, stat.size);
     defer allocator.free(source);
 
-    std.debug.print("Running {s}\n", .{path});
     _ = v.interpret(source) catch |err| {
         std.debug.print("error: {}\n", .{err});
         std.process.exit(65);
