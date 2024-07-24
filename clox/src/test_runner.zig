@@ -1,6 +1,7 @@
 const std = @import("std");
 const io = std.io;
 const Regex = @import("regex").Regex;
+const Captures = @import("regex").Captures;
 
 pub const ExpectedOutput = struct {
     const Self = @This();
@@ -183,6 +184,29 @@ pub const Test = struct {
             try lines.append(l);
         }
 
+        iter = std.mem.split(u8, proc.stderr, "\n");
+        var errorLines = std.ArrayList([]const u8).init(self.allocator);
+        defer errorLines.deinit();
+        while (iter.next()) |l| {
+            try errorLines.append(l);
+        }
+
+        if (self.expectedRuntimeError) |_| {
+            try self.validateRuntimeError(errorLines.items);
+        } else {
+            try self.validateCompileErrors(errorLines.items);
+        }
+
+        const exitCode: i32 = switch (proc.term) {
+            .Exited => proc.term.Exited,
+            .Signal => @intCast(proc.term.Signal),
+            else => 0,
+        };
+
+        // const stdout = std.io.getStdOut().writer();
+        // try stdout.print("Exit code: {d}\n", .{exitCode});
+
+        try self.validateExitCode(exitCode, errorLines.items);
         try self.validateOutput(lines.items);
 
         return self.failures;
@@ -213,15 +237,88 @@ pub const Test = struct {
     }
 
     pub fn validateRuntimeError(self: *Self, errorLines: []const []const u8) !void {
+        const stdout = std.io.getStdOut().writer();
+        try stdout.print("Error lines: '{any}'\n", .{errorLines});
         if (errorLines.len < 2) {
-            try self.fail(try std.fmt.allocPrint(self.allocator, "Expected runtime error '{s}' and got none.", .{self.expectedRuntimeError}), null);
+            try self.fail(try std.fmt.allocPrint(self.allocator, "Expected runtime error '{s}' and got none.", .{self.expectedRuntimeError.?}), null);
             return;
         }
 
-        if (!std.mem.eql(u8, errorLines[0], self.expectedRuntimeError)) {
-            try self.fail(try std.fmt.allocPrint(self.allocator, "Expected runtime error '{s}' and got:", .{self.runtimeErrorLine}), null);
+        if (!std.mem.eql(u8, errorLines[0], self.expectedRuntimeError.?)) {
+            try self.fail(try std.fmt.allocPrint(self.allocator, "Expected runtime error '{s}' and got:", .{self.expectedRuntimeError.?}), null);
             try self.fail(errorLines[0], null);
         }
+
+        const stackLines = errorLines[1..];
+        var captures: ?Captures = null;
+        for (stackLines) |line| {
+            if (try self.stackTracePattern.captures(line)) |c| {
+                try stdout.print("Stack line: '{any}'\n", .{c});
+                captures = c;
+                break;
+            }
+        }
+
+        try stdout.print("Captures: '{any}'\n", .{captures});
+        if (captures) |c| {
+            const stackLine = c.sliceAt(1) orelse null;
+            if (stackLine) |sl| {
+                const line = try std.fmt.parseInt(i32, sl, 10);
+                if (line != self.runtimeErrorLine) {
+                    try self.fail(try std.fmt.allocPrint(self.allocator, "Expected runtime error on line {d} but was on line {d}", .{ self.runtimeErrorLine, line }), null);
+                }
+            }
+        } else {
+            try self.fail("Expected stack trace and got:", stackLines);
+        }
+    }
+
+    pub fn validateCompileErrors(self: *Self, errorLines: []const []const u8) !void {
+        const stdout = std.io.getStdOut().writer();
+        var foundErrors = std.ArrayList([]const u8).init(self.allocator);
+        var unexpectedCount: usize = 0;
+
+        for (errorLines) |line| {
+            if (try self.syntaxErrorPattern.captures(line)) |caps| {
+                const l = caps.sliceAt(1) orelse "";
+                const e = caps.sliceAt(2) orelse "";
+                const err = try std.fmt.allocPrint(self.allocator, "[{s}] {s}", .{ l, e });
+                if (contains(self.expectedErrors.items, err)) {
+                    try foundErrors.append(err);
+                } else {
+                    if (unexpectedCount < 10) {
+                        try self.fail("Unexpected error:", null);
+                        try self.fail(line, null);
+                    }
+                    unexpectedCount += 1;
+                }
+            } else if (line.len > 0) {
+                if (unexpectedCount < 10) {
+                    try self.fail("Unexpected output on stderr: ", null);
+                    try self.fail(line, null);
+                }
+                unexpectedCount += 1;
+            }
+        }
+
+        if (unexpectedCount > 10) {
+            try self.fail(try std.fmt.allocPrint(self.allocator, "(truncated {d}i more...)", .{unexpectedCount - 10}), null);
+        }
+
+        for (self.expectedErrors.items) |expected| {
+            try stdout.print("Expected error: '{s}'\n", .{expected});
+            if (!contains(foundErrors.items, expected)) {
+                try self.fail(try std.fmt.allocPrint(self.allocator, "Missing expected error '{s}'", .{expected}), null);
+            }
+        }
+    }
+
+    pub fn validateExitCode(self: *Self, exitCode: i32, errorLines: []const []const u8) !void {
+        if (exitCode == self.expectedExitCode) {
+            return;
+        }
+
+        try self.fail(try std.fmt.allocPrint(self.allocator, "Expected exit code {d} and got {d}", .{ self.expectedExitCode, exitCode }), errorLines);
     }
 
     fn fail(self: *Self, message: []const u8, lines: ?[]const []const u8) !void {
@@ -231,6 +328,16 @@ pub const Test = struct {
                 try self.failures.append(line);
             }
         }
+    }
+
+    fn contains(arr: []const []const u8, item: []const u8) bool {
+        for (arr) |i| {
+            if (std.mem.eql(u8, i, item)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 };
 
