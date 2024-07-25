@@ -220,7 +220,11 @@ pub const Scanner = struct {
     }
 
     fn isAtEnd(self: *Self) bool {
-        return self.current >= self.start.len;
+        if (self.start.len == 0) {
+            return true;
+        }
+        // std.debug.print("current: {d}, len: {d}\n", .{ self.current, self.start.len });
+        return self.current >= self.start.len - 1;
     }
 
     fn advance(self: *Self) u8 {

@@ -279,7 +279,9 @@ pub const Test = struct {
         var unexpectedCount: usize = 0;
 
         for (errorLines) |line| {
+            std.debug.print("Error line: '{s}'\n", .{line});
             if (try self.syntaxErrorPattern.captures(line)) |caps| {
+                // try stdout.print("Expected errorr: '{any}'\n", .{self.expectedErrors});
                 const l = caps.sliceAt(1) orelse "";
                 const e = caps.sliceAt(2) orelse "";
                 const err = try std.fmt.allocPrint(self.allocator, "[{s}] {s}", .{ l, e });
@@ -293,6 +295,7 @@ pub const Test = struct {
                     unexpectedCount += 1;
                 }
             } else if (line.len > 0) {
+                // try stdout.print("Unexpected error line: '{s}'\n", .{line});
                 if (unexpectedCount < 10) {
                     try self.fail("Unexpected output on stderr: ", null);
                     try self.fail(line, null);

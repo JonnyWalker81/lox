@@ -192,6 +192,11 @@ pub const VM = struct {
     }
 
     fn callValue(self: *Self, callee: value.Value, argCount: u8) bool {
+        if (!callee.isObject()) {
+            self.runtimeError("Can only call functions and classes\n", .{});
+            return false;
+        }
+
         switch (callee.asObject().type) {
             .native => {
                 const native = callee.asObject().asNative().function;
@@ -228,7 +233,7 @@ pub const VM = struct {
                 return self.call(closure, argCount);
             },
             else => {
-                self.runtimeError("Can only call functions and classes", .{});
+                self.runtimeError("Can only call functions and classes\n", .{});
                 return false;
             },
         }
@@ -657,11 +662,6 @@ pub const VM = struct {
     }
 
     fn run_binary_op(self: *Self, op: BinaryOp) !void {
-        if (!self.peek(0).isNumber() and self.peek(1).isNumber()) {
-            self.runtimeError("Operands must be numbers", .{});
-            return InterpreterError.runtime_error;
-        }
-
         // std.debug.print("run_binary_op: {}\n", .{op});
 
         const b = self.peek(0);
@@ -669,15 +669,25 @@ pub const VM = struct {
         var result: value.Value = value.Value.nil();
         switch (op) {
             .greater => {
+                if (!a.isNumber() or !b.isNumber()) {
+                    self.runtimeError("Operands must be numbers", .{});
+                    return InterpreterError.runtime_error;
+                }
+
                 result = value.Value.fromBool(a.asNumber() > b.asNumber());
             },
             .less => {
+                if (!a.isNumber() or !b.isNumber()) {
+                    self.runtimeError("Operands must be numbers", .{});
+                    return InterpreterError.runtime_error;
+                }
+
                 result = value.Value.fromBool(a.asNumber() < b.asNumber());
             },
             .add => {
                 if (a.isNumber() and b.isNumber()) {
                     result = value.Value.fromNumber(a.asNumber() + b.asNumber());
-                } else if (a.asObject().is(.string) and b.asObject().is(.string)) {
+                } else if (a.isObject() and b.isObject() and (a.asObject().is(.string) and b.asObject().is(.string))) {
                     const s = try std.fmt.allocPrint(self.allocator, "{s}{s}", .{ a.asObject().asString(), b.asObject().asString() });
                     defer self.allocator.free(s);
                     const str = try value.String.init(self, s);
@@ -688,13 +698,28 @@ pub const VM = struct {
                 }
             },
             .subtract => {
+                if (!a.isNumber() or !b.isNumber()) {
+                    self.runtimeError("Operands must be numbers", .{});
+                    return InterpreterError.runtime_error;
+                }
+
                 result = value.Value.fromNumber(a.asNumber() - b.asNumber());
             },
             .multiply => {
+                if (!a.isNumber() or !b.isNumber()) {
+                    self.runtimeError("Operands must be numbers", .{});
+                    return InterpreterError.runtime_error;
+                }
+
                 result = value.Value.fromNumber(a.asNumber() * b.asNumber());
                 self.push(result);
             },
             .divide => {
+                if (!a.isNumber() or !b.isNumber()) {
+                    self.runtimeError("Operands must be numbers", .{});
+                    return InterpreterError.runtime_error;
+                }
+
                 result = value.Value.fromNumber(a.asNumber() / b.asNumber());
                 self.push(result);
             },

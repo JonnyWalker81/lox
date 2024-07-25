@@ -329,8 +329,8 @@ pub const Function = struct {
     const Self = @This();
 
     obj: Obj,
-    arity: u8 = 0,
-    upvalueCount: u8 = 0,
+    arity: u16 = 0,
+    upvalueCount: u16 = 0,
     chnk: chunk.Chunk = undefined,
     name: ?*String = null,
 

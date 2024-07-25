@@ -288,7 +288,7 @@ pub const Compiler = struct {
     fn emitLoop(self: *Self, loopStart: u16) !void {
         try self.emitByte(@intFromEnum(chunk.OpCode.OpLoop));
 
-        const offset: u16 = @intCast(self.currentChunk().count - loopStart + 2);
+        const offset: u32 = @truncate(self.currentChunk().count - loopStart + 2);
         if (offset > std.math.maxInt(u16)) {
             self.err("Loop body too large.");
         }
@@ -574,7 +574,7 @@ pub const Compiler = struct {
         }
 
         const name = self.parser.previous;
-        var i: i32 = @intCast(self.localCount);
+        var i: i32 = @as(i32, @intCast(self.localCount)) - 1;
         while (i >= 0) : (i -= 1) {
             const local = &self.locals[@intCast(i)];
             if (local.depth != -1 and local.depth < self.scopeDepth) {
@@ -690,7 +690,7 @@ pub const Compiler = struct {
     }
 
     fn argumentList(self: *Self) !u8 {
-        var argCount: u8 = 0;
+        var argCount: u16 = 0;
         if (!self.check(.right_paren)) {
             try self.expression();
             if (argCount == std.math.maxInt(u8)) {
@@ -708,7 +708,7 @@ pub const Compiler = struct {
         }
 
         _ = try self.consume(@intFromEnum(scanner.TokenType.right_paren), "Expect ')' after arguments.");
-        return argCount;
+        return @truncate(argCount);
     }
 
     fn and_(self: *Self, _: bool) !void {
@@ -752,7 +752,7 @@ pub const Compiler = struct {
             while (try compiler.match(.comma)) {
                 compiler.function.incrementArity();
                 if (compiler.function.arity > std.math.maxInt(u8)) {
-                    self.err("Cannot have more than 255 parameters.");
+                    self.errorAtCurrent("Cannot have more than 255 parameters.");
                 }
 
                 paramConstant = try compiler.parseVariable("Expect parameter name.");
@@ -1068,7 +1068,7 @@ pub const Compiler = struct {
     }
 
     fn patchJump(self: *Self, offset: u16) !void {
-        const jump: u16 = @intCast(self.currentChunk().count - offset - 2);
+        const jump: u16 = @truncate(self.currentChunk().count - offset - 2);
 
         if (jump > std.math.maxInt(u16)) {
             self.err("Too much code to jump over.");
