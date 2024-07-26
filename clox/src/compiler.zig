@@ -469,10 +469,10 @@ pub const Compiler = struct {
 
     fn super(self: *Self, _: bool) !void {
         if (self.currentClass == null) {
-            self.err("Cannot use 'super' outside of a class.");
+            self.err("Can't use 'super' outside of a class.");
             // return;
         } else if (!self.currentClass.?.hasSuperclass) {
-            self.err("Cannot use 'super' in a class with no superclass.");
+            self.err("Can't use 'super' in a class with no superclass.");
             // return;
         }
 
@@ -495,7 +495,7 @@ pub const Compiler = struct {
 
     fn this(self: *Self, _: bool) !void {
         if (self.currentClass == null) {
-            self.err("Cannot use 'this' outside of a class.");
+            self.err("Can't use 'this' outside of a class.");
             return;
         }
 
@@ -1097,6 +1097,8 @@ pub const Compiler = struct {
             return;
         }
 
+        std.debug.print("compile errorAt...\n", .{});
+
         self.parser.panicMode = true;
         std.debug.print("[line {d}] Error", .{token.line});
 
@@ -1110,5 +1112,6 @@ pub const Compiler = struct {
 
         std.debug.print(": {s}\n", .{message});
         self.parser.hadError = true;
+        std.debug.print("compile errorAt end...\n", .{});
     }
 };

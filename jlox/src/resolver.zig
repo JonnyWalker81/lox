@@ -118,9 +118,9 @@ pub const Resolver = struct {
 
     fn resolveSuper(self: *Self, expr: *ast.Expression, s: *const ast.Super) !void {
         if (self.currentClass == .none) {
-            lox.Lox.err(s.keyword.line, "Cannot use 'super' outside of a class.");
+            lox.Lox.err(s.keyword.line, "Can't use 'super' outside of a class.");
         } else if (self.currentClass != .subclass) {
-            lox.Lox.err(s.keyword.line, "Cannot use 'super' in a class with no superclass.");
+            lox.Lox.err(s.keyword.line, "Can't use 'super' in a class with no superclass.");
         }
 
         try self.resolveLocal(expr, s.keyword);

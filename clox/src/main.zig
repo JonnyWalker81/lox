@@ -29,7 +29,7 @@ pub fn main() !void {
 }
 
 pub fn runFile(allocator: std.mem.Allocator, path: []const u8, v: *vm.VM) !void {
-    std.debug.print("Running {s}\n", .{path});
+    // std.debug.print("Running {s}\n", .{path});
     const file = try std.fs.cwd().openFile(path, .{});
     defer file.close();
 
@@ -38,8 +38,11 @@ pub fn runFile(allocator: std.mem.Allocator, path: []const u8, v: *vm.VM) !void 
     defer allocator.free(source);
 
     _ = v.interpret(source) catch |err| {
-        std.debug.print("error: {}\n", .{err});
-        std.process.exit(65);
+        switch (err) {
+            vm.InterpreterError.compile_error => std.process.exit(65),
+            vm.InterpreterError.runtime_error => std.process.exit(70),
+            else => {},
+        }
     };
 }
 

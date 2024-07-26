@@ -46,27 +46,27 @@ pub const Test = struct {
         );
 
         const expectedErrorPattern = try Regex.compile(allocator,
-            \\// (Error.*),
+            \\// (Error.*)
         );
 
         const errorLinePattern = try Regex.compile(allocator,
-            \\// \[((java|c) )?line (\d+)\] (Error.*),
+            \\// \[((java|c) )?line (\d+)\] (Error.*)
         );
 
         const expectedRuntimeErrorPattern = try Regex.compile(allocator,
-            \\// expect runtime error: (.*)",
+            \\// expect runtime error: (.*)
         );
 
         const syntaxErrorPattern = try Regex.compile(allocator,
-            \\\[.*line (\d+)\] (Error.+),
+            \\\[.*line (\d+)\] (Error.+)
         );
 
         const stackTracePattern = try Regex.compile(allocator,
-            \\\[line (\d+)\]",
+            \\\[line (\d+)\].*
         );
 
         const nonTestPattern = try Regex.compile(allocator,
-            \\// nontest,
+            \\// nontest
         );
 
         return .{
@@ -113,18 +113,19 @@ pub const Test = struct {
                     // try stdout.print("Expected output: '{s}'\n", .{c});
                     try self.expectedOutput.append(try ExpectedOutput.init(self.allocator, lineNum, c));
                     self.expectations += 1;
-                    continue;
                 }
+                continue;
             }
 
             if (try self.expectedErrorPattern.captures(line)) |caps| {
                 if (caps.sliceAt(1)) |c| {
+                    // try stdout.print("-- found Expected error: '{s}'\n", .{line});
                     const err = try std.fmt.allocPrint(self.allocator, "[{d}] {s}", .{ lineNum, c });
                     try self.expectedErrors.append(err);
                     self.expectedExitCode = 65;
                     self.expectations += 1;
-                    continue;
                 }
+                continue;
             }
 
             if (try self.errorLinePattern.captures(line)) |caps| {
@@ -143,11 +144,11 @@ pub const Test = struct {
             if (try self.expectedRuntimeErrorPattern.captures(line)) |caps| {
                 if (caps.sliceAt(1)) |c| {
                     self.runtimeErrorLine = lineNum;
-                    self.expectedRuntimeError = c;
+                    self.expectedRuntimeError = try self.allocator.dupe(u8, c);
                     self.expectedExitCode = 70;
                     self.expectations += 1;
-                    continue;
                 }
+                continue;
             }
 
             if (self.expectedErrors.items.len > 0 and self.expectedRuntimeError != null) {
@@ -171,12 +172,13 @@ pub const Test = struct {
             .argv = &argv,
         });
 
-        // const stdout = std.io.getStdOut().writer();
+        const stdout = std.io.getStdOut().writer();
         // if (proc.stdout.len > 0) {
         //     try stdout.print("{s}\n", .{proc.stdout});
-        // } else if (proc.stderr.len > 0) {
-        //     try stdout.print("{s}\n", .{proc.stderr});
         // }
+        if (proc.stderr.len > 0) {
+            try stdout.print("output -- {s} --end output\n", .{proc.stderr});
+        }
         var iter = std.mem.split(u8, proc.stdout, "\n");
         var lines = std.ArrayList([]const u8).init(self.allocator);
         defer lines.deinit();
@@ -188,6 +190,9 @@ pub const Test = struct {
         var errorLines = std.ArrayList([]const u8).init(self.allocator);
         defer errorLines.deinit();
         while (iter.next()) |l| {
+            if (l.len == 0) {
+                continue;
+            }
             try errorLines.append(l);
         }
 
@@ -217,6 +222,10 @@ pub const Test = struct {
         // const stdout = std.io.getStdOut().writer();
         while (index < lines.len) : (index += 1) {
             const line = lines[index];
+            if (line.len == 0 and index == lines.len - 1) {
+                continue;
+            }
+
             if (index >= self.expectedOutput.items.len) {
                 try self.fail(try std.fmt.allocPrint(self.allocator, "Got output '{d}' when none was expected.", .{line}), null);
                 continue;
@@ -237,8 +246,7 @@ pub const Test = struct {
     }
 
     pub fn validateRuntimeError(self: *Self, errorLines: []const []const u8) !void {
-        const stdout = std.io.getStdOut().writer();
-        try stdout.print("Error lines: '{any}'\n", .{errorLines});
+        // const stdout = std.io.getStdOut().writer();
         if (errorLines.len < 2) {
             try self.fail(try std.fmt.allocPrint(self.allocator, "Expected runtime error '{s}' and got none.", .{self.expectedRuntimeError.?}), null);
             return;
@@ -251,15 +259,16 @@ pub const Test = struct {
 
         const stackLines = errorLines[1..];
         var captures: ?Captures = null;
-        for (stackLines) |line| {
+        for (stackLines, 0..) |line, i| {
+            if (line.len == 0 and i == stackLines.len - 1) {
+                continue;
+            }
             if (try self.stackTracePattern.captures(line)) |c| {
-                try stdout.print("Stack line: '{any}'\n", .{c});
                 captures = c;
                 break;
             }
         }
 
-        try stdout.print("Captures: '{any}'\n", .{captures});
         if (captures) |c| {
             const stackLine = c.sliceAt(1) orelse null;
             if (stackLine) |sl| {
@@ -278,14 +287,19 @@ pub const Test = struct {
         var foundErrors = std.ArrayList([]const u8).init(self.allocator);
         var unexpectedCount: usize = 0;
 
-        for (errorLines) |line| {
-            std.debug.print("Error line: '{s}'\n", .{line});
+        for (errorLines, 0..) |line, i| {
+            if (line.len == 0 and i == errorLines.len - 1) {
+                break;
+            }
+
             if (try self.syntaxErrorPattern.captures(line)) |caps| {
+                try stdout.print("Syntax error: '{s}'\n", .{line});
                 // try stdout.print("Expected errorr: '{any}'\n", .{self.expectedErrors});
                 const l = caps.sliceAt(1) orelse "";
                 const e = caps.sliceAt(2) orelse "";
                 const err = try std.fmt.allocPrint(self.allocator, "[{s}] {s}", .{ l, e });
                 if (contains(self.expectedErrors.items, err)) {
+                    // try stdout.print("Found expected error: '{s}'\n", .{err});
                     try foundErrors.append(err);
                 } else {
                     if (unexpectedCount < 10) {
@@ -309,7 +323,6 @@ pub const Test = struct {
         }
 
         for (self.expectedErrors.items) |expected| {
-            try stdout.print("Expected error: '{s}'\n", .{expected});
             if (!contains(foundErrors.items, expected)) {
                 try self.fail(try std.fmt.allocPrint(self.allocator, "Missing expected error '{s}'", .{expected}), null);
             }
@@ -363,6 +376,7 @@ pub fn main() !void {
     // defer alloc.free(proc.stdout);
     // defer alloc.free(proc.stderr);
 
+    var count: usize = 0;
     var iter = try d.walk(arena.allocator());
     while (try iter.next()) |entry| {
         if (std.mem.indexOf(u8, entry.path, "benchmark")) |_| {
@@ -383,7 +397,16 @@ pub fn main() !void {
                 continue;
             }
 
-            _ = try t.run();
+            const failures = try t.run();
+
+            if (failures.items.len > 0) {
+                try stdout.print("Test failed: '{s}'\n", .{entry.path});
+                for (failures.items) |failure| {
+                    try stdout.print("{s}\n", .{failure});
+                }
+            } else {
+                try stdout.print("Test passed: '{s}'\n", .{entry.path});
+            }
 
             // const fullPath = try std.fmt.allocPrint(arena.allocator(), "../test/{s}", .{entry.path});
             // const argv = [_][]const u8{ "./zig-out/bin/clox", fullPath };
@@ -398,6 +421,10 @@ pub fn main() !void {
             // } else if (proc.stderr.len > 0) {
             //     try stdout.print("{s}\n", .{proc.stderr});
             // }
+            count += 1;
+            if (count == 14) {
+                break;
+            }
         }
     }
 }

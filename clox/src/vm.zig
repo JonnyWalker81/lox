@@ -369,7 +369,7 @@ pub const VM = struct {
     }
 
     pub fn interpret(self: *Self, source: []const u8) !InterpretResult {
-        const f = try self.comp.compile(source, self);
+        const f = self.comp.compile(source, self) catch return InterpreterError.compile_error;
 
         self.push(f.obj.value());
 
