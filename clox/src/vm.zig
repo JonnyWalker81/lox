@@ -244,7 +244,7 @@ pub const VM = struct {
             return self.call(method.asObject().asClosure(), argCount);
         }
 
-        self.runtimeError("Undefined property '{s}'", .{name.bytes});
+        self.runtimeError("Undefined property '{s}'.\n", .{name.bytes});
         return false;
     }
 
@@ -275,7 +275,7 @@ pub const VM = struct {
             return true;
         }
 
-        self.runtimeError("Undefined property '{s}'", .{name.bytes});
+        self.runtimeError("Undefined property '{s}'.\n", .{name.bytes});
         return false;
     }
 
@@ -406,7 +406,7 @@ pub const VM = struct {
                 std.debug.print("          ", .{});
                 for (0..self.stackTop) |i| {
                     std.debug.print("[ ", .{});
-                    debug.printValue(self.stack[i]);
+                    try debug.printValue(self.stack[i]);
                     std.debug.print(" ]", .{});
                 }
                 std.debug.print("\n", .{});
@@ -739,7 +739,7 @@ pub const VM = struct {
 
     fn run_not(self: *Self) !void {
         const val = self.pop();
-        self.push(value.Value.fromBool(!val.isFalsey()));
+        self.push(value.Value.fromBool(val.isFalsey()));
     }
 
     fn run_negate(self: *Self) !void {

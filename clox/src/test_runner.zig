@@ -103,6 +103,10 @@ pub const Test = struct {
         const stdout = std.io.getStdOut().writer();
         var lineNum: usize = 1;
         while (try in_stream.readUntilDelimiterOrEof(&buf, '\n')) |line| {
+            defer {
+                lineNum += 1;
+            }
+
             if (try self.nonTestPattern.match(line)) {
                 try stdout.print("Skipping non-test: '{s}'\n", .{self.path});
                 return false;
@@ -129,11 +133,15 @@ pub const Test = struct {
             }
 
             if (try self.errorLinePattern.captures(line)) |caps| {
+                try stdout.print("cap length: '{d}'\n", .{caps.len()});
+                if (caps.len() < 2) {
+                    continue;
+                }
                 const language = caps.sliceAt(2) orelse null;
                 if (language == null or std.mem.eql(u8, language.?, "c")) {
                     const m3 = caps.sliceAt(3) orelse "";
                     const m4 = caps.sliceAt(4) orelse "";
-                    const err = try std.fmt.allocPrint(self.allocator, "[{d}] {s}", .{ m3, m4 });
+                    const err = try std.fmt.allocPrint(self.allocator, "[{s}] {s}", .{ m3, m4 });
                     try self.expectedErrors.append(err);
                     self.expectedExitCode = 65;
                     self.expectations += 1;
@@ -156,8 +164,6 @@ pub const Test = struct {
                 try stdout.print("Cannot expect both errors and runtime error: '{s}'\n", .{self.path});
                 return false;
             }
-
-            lineNum += 1;
         }
 
         return true;
@@ -172,13 +178,13 @@ pub const Test = struct {
             .argv = &argv,
         });
 
-        const stdout = std.io.getStdOut().writer();
+        // const stdout = std.io.getStdOut().writer();
         // if (proc.stdout.len > 0) {
         //     try stdout.print("{s}\n", .{proc.stdout});
         // }
-        if (proc.stderr.len > 0) {
-            try stdout.print("output -- {s} --end output\n", .{proc.stderr});
-        }
+        // if (proc.stderr.len > 0) {
+        //     try stdout.print("output -- {s} --end output\n", .{proc.stderr});
+        // }
         var iter = std.mem.split(u8, proc.stdout, "\n");
         var lines = std.ArrayList([]const u8).init(self.allocator);
         defer lines.deinit();
@@ -219,7 +225,7 @@ pub const Test = struct {
 
     pub fn validateOutput(self: *Self, lines: []const []const u8) !void {
         var index: usize = 0;
-        // const stdout = std.io.getStdOut().writer();
+        const stdout = std.io.getStdOut().writer();
         while (index < lines.len) : (index += 1) {
             const line = lines[index];
             if (line.len == 0 and index == lines.len - 1) {
@@ -232,8 +238,8 @@ pub const Test = struct {
             }
 
             const expected = self.expectedOutput.items[index];
-            // try stdout.print("Expected: '{s}', Got: '{s}'\n", .{ expected.output, line });
             if (!std.mem.eql(u8, expected.output, line)) {
+                try stdout.print("Expected: '{s}', Got: '{s}'\n", .{ expected.output, line });
                 try self.fail(try std.fmt.allocPrint(self.allocator, "Expected output '{s}' and got '{s}'.", .{ expected.output, line }), null);
             }
         }
@@ -246,13 +252,15 @@ pub const Test = struct {
     }
 
     pub fn validateRuntimeError(self: *Self, errorLines: []const []const u8) !void {
-        // const stdout = std.io.getStdOut().writer();
+        const stdout = std.io.getStdOut().writer();
         if (errorLines.len < 2) {
+            try self.fail("Expected runtime error and got none.", null);
             try self.fail(try std.fmt.allocPrint(self.allocator, "Expected runtime error '{s}' and got none.", .{self.expectedRuntimeError.?}), null);
             return;
         }
 
         if (!std.mem.eql(u8, errorLines[0], self.expectedRuntimeError.?)) {
+            try stdout.print("Expected runtime error: '{s}'\n", .{self.expectedRuntimeError.?});
             try self.fail(try std.fmt.allocPrint(self.allocator, "Expected runtime error '{s}' and got:", .{self.expectedRuntimeError.?}), null);
             try self.fail(errorLines[0], null);
         }
@@ -274,6 +282,7 @@ pub const Test = struct {
             if (stackLine) |sl| {
                 const line = try std.fmt.parseInt(i32, sl, 10);
                 if (line != self.runtimeErrorLine) {
+                    try stdout.print("--Expected runtime error on line {d} but was on line {d}\n", .{ self.runtimeErrorLine, line });
                     try self.fail(try std.fmt.allocPrint(self.allocator, "Expected runtime error on line {d} but was on line {d}", .{ self.runtimeErrorLine, line }), null);
                 }
             }
@@ -283,7 +292,7 @@ pub const Test = struct {
     }
 
     pub fn validateCompileErrors(self: *Self, errorLines: []const []const u8) !void {
-        const stdout = std.io.getStdOut().writer();
+        // const stdout = std.io.getStdOut().writer();
         var foundErrors = std.ArrayList([]const u8).init(self.allocator);
         var unexpectedCount: usize = 0;
 
@@ -293,11 +302,13 @@ pub const Test = struct {
             }
 
             if (try self.syntaxErrorPattern.captures(line)) |caps| {
-                try stdout.print("Syntax error: '{s}'\n", .{line});
+                // try stdout.print("Syntax error: '{s}'\n", .{line});
                 // try stdout.print("Expected errorr: '{any}'\n", .{self.expectedErrors});
                 const l = caps.sliceAt(1) orelse "";
+                // std.debug.print("l: '{s}'\n", .{l});
                 const e = caps.sliceAt(2) orelse "";
                 const err = try std.fmt.allocPrint(self.allocator, "[{s}] {s}", .{ l, e });
+                // std.debug.print("err: '{s}'\n", .{err});
                 if (contains(self.expectedErrors.items, err)) {
                     // try stdout.print("Found expected error: '{s}'\n", .{err});
                     try foundErrors.append(err);
@@ -322,6 +333,7 @@ pub const Test = struct {
             try self.fail(try std.fmt.allocPrint(self.allocator, "(truncated {d}i more...)", .{unexpectedCount - 10}), null);
         }
 
+        // std.debug.print("expectedErrors: '{s}'\n", .{self.expectedErrors.items});
         for (self.expectedErrors.items) |expected| {
             if (!contains(foundErrors.items, expected)) {
                 try self.fail(try std.fmt.allocPrint(self.allocator, "Missing expected error '{s}'", .{expected}), null);
@@ -338,6 +350,7 @@ pub const Test = struct {
     }
 
     fn fail(self: *Self, message: []const u8, lines: ?[]const []const u8) !void {
+        std.debug.print("message: '{s}'\n", .{message});
         try self.failures.append(message);
         if (lines) |lns| {
             for (lns) |line| {
@@ -402,6 +415,7 @@ pub fn main() !void {
             if (failures.items.len > 0) {
                 try stdout.print("Test failed: '{s}'\n", .{entry.path});
                 for (failures.items) |failure| {
+                    try stdout.print("here...\n", .{});
                     try stdout.print("{s}\n", .{failure});
                 }
             } else {
@@ -422,7 +436,7 @@ pub fn main() !void {
             //     try stdout.print("{s}\n", .{proc.stderr});
             // }
             count += 1;
-            if (count == 14) {
+            if (count == 29) {
                 break;
             }
         }

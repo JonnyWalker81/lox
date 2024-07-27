@@ -1097,7 +1097,7 @@ pub const Compiler = struct {
             return;
         }
 
-        std.debug.print("compile errorAt...\n", .{});
+        // std.debug.print("compile errorAt...\n", .{});
 
         self.parser.panicMode = true;
         std.debug.print("[line {d}] Error", .{token.line});
@@ -1112,6 +1112,6 @@ pub const Compiler = struct {
 
         std.debug.print(": {s}\n", .{message});
         self.parser.hadError = true;
-        std.debug.print("compile errorAt end...\n", .{});
+        // std.debug.print("compile errorAt end...\n", .{});
     }
 };

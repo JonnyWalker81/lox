@@ -54,7 +54,7 @@ pub fn disassembleInstruction(c: chunk.Chunk, offset: usize) usize {
             const constant: u8 = c.code.items[o];
             o += 1;
             std.debug.print("{s:16} {d:4} ", .{ "OP_CLOSURE", constant });
-            printValue(c.constants.items[constant]);
+            printValue(c.constants.items[constant]) catch unreachable;
             std.debug.print("\n", .{});
 
             const ff = c.constants.items[constant];
@@ -195,7 +195,7 @@ fn constantInstruction(name: []const u8, c: chunk.Chunk, offset: usize) usize {
     const constant: u8 = c.code.items[offset + 1];
     std.debug.print("{s} {d:4} '", .{ name, constant });
     // if (c.constants.values) |vals| {
-    printValue(c.constants.items[constant]);
+    printValue(c.constants.items[constant]) catch unreachable;
     // }
     std.debug.print("'\n", .{});
     // }
@@ -206,7 +206,7 @@ fn invokeInstruction(name: []const u8, c: chunk.Chunk, offset: usize) usize {
     const constant: u8 = c.code.items[offset + 1];
     const argCount: u8 = c.code.items[offset + 2];
     std.debug.print("{s} ({d} args) {d:4} ", .{ name, argCount, constant });
-    printValue(c.constants.items[constant]);
+    printValue(c.constants.items[constant]) catch unreachable;
     std.debug.print("\n", .{});
     return offset + 3;
 }

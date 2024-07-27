@@ -153,6 +153,8 @@ pub const Scanner = struct {
 
         const c = self.advance();
 
+        // std.debug.print("c: {c}\n", .{c});
+
         switch (c) {
             '(' => return self.makeToken(.left_paren),
             ')' => return self.makeToken(.right_paren),
@@ -224,7 +226,7 @@ pub const Scanner = struct {
             return true;
         }
         // std.debug.print("current: {d}, len: {d}\n", .{ self.current, self.start.len });
-        return self.current >= self.start.len - 1;
+        return self.current >= self.start.len;
     }
 
     fn advance(self: *Self) u8 {
