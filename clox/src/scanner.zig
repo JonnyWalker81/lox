@@ -204,13 +204,14 @@ pub const Scanner = struct {
                 } else if (isAlpha(c)) {
                     return try self.identifier();
                 } else {
-                    std.debug.print("else: {c}\n", .{c});
+                    // std.debug.print("else: {c}\n", .{c});
                 }
             },
         }
 
-        std.debug.print("unexpected token: {c}\n", .{c});
-        return CompilerError.UnexpectedToken;
+        // std.debug.print("unexpected character: {c}\n", .{c});
+        // return CompilerError.UnexpectedToken;
+        return self.errorToken("Unexpected character.");
     }
 
     fn isDigit(c: u8) bool {
@@ -226,6 +227,7 @@ pub const Scanner = struct {
             return true;
         }
         // std.debug.print("current: {d}, len: {d}\n", .{ self.current, self.start.len });
+        // return self.current >= self.start.len;
         return self.current >= self.start.len;
     }
 
@@ -244,6 +246,10 @@ pub const Scanner = struct {
 
     fn peekNext(self: *Self) u8 {
         if (self.isAtEnd()) {
+            return 0;
+        }
+
+        if (self.current + 1 >= self.start.len) {
             return 0;
         }
 
@@ -267,6 +273,14 @@ pub const Scanner = struct {
         return Token.init(
             typ,
             self.start[0..self.current],
+            self.line,
+        );
+    }
+
+    fn errorToken(self: *Self, message: []const u8) Token {
+        return Token.init(
+            .@"error",
+            message,
             self.line,
         );
     }
@@ -311,7 +325,7 @@ pub const Scanner = struct {
         }
 
         if (self.isAtEnd()) {
-            return CompilerError.UnterminatedString;
+            return self.errorToken("Unterminated string.");
         }
 
         _ = self.advance();

@@ -193,7 +193,7 @@ pub const VM = struct {
 
     fn callValue(self: *Self, callee: value.Value, argCount: u8) bool {
         if (!callee.isObject()) {
-            self.runtimeError("Can only call functions and classes\n", .{});
+            self.runtimeError("Can only call functions and classes.\n", .{});
             return false;
         }
 
@@ -222,7 +222,7 @@ pub const VM = struct {
                 if (class.methods.get(self.initString)) |initializer| {
                     return self.call(initializer.asObject().asClosure(), argCount);
                 } else if (argCount != 0) {
-                    self.runtimeError("Expected 0 arguments but got {d}.", .{argCount});
+                    self.runtimeError("Expected 0 arguments but got {d}.\n", .{argCount});
                     return false;
                 }
 
@@ -233,7 +233,7 @@ pub const VM = struct {
                 return self.call(closure, argCount);
             },
             else => {
-                self.runtimeError("Can only call functions and classes\n", .{});
+                self.runtimeError("Can only call functions and classes.\n", .{});
                 return false;
             },
         }
@@ -326,7 +326,7 @@ pub const VM = struct {
         }
 
         if (self.frameCount == FrameMax) {
-            self.runtimeError("Stack overflow", .{});
+            self.runtimeError("Stack overflow.\n", .{});
             return false;
         }
 
@@ -528,7 +528,7 @@ pub const VM = struct {
                     if (self.globals.get(name.asObject().asString())) |val| {
                         self.push(val);
                     } else {
-                        self.runtimeError("GetGobal: Undefined variable '{s}'", .{name.asObject().asString()});
+                        self.runtimeError("Undefined variable '{s}'.\n", .{name.asObject().asString()});
                         return InterpreterError.runtime_error;
                     }
                 },
@@ -547,7 +547,7 @@ pub const VM = struct {
                         const val = self.peek(0);
                         try self.globals.put(name.asObject().asString(), val);
                     } else {
-                        self.runtimeError("SetGlobal: Undefined variable '{s}'", .{name.asObject().asString()});
+                        self.runtimeError("Undefined variable '{s}'.\n", .{name.asObject().asString()});
                         return InterpreterError.runtime_error;
                     }
                 },
@@ -563,7 +563,7 @@ pub const VM = struct {
                 },
                 .OpGetProperty => {
                     if (!self.peek(0).isObjType(.instance)) {
-                        self.runtimeError("Only instances have properties.", .{});
+                        self.runtimeError("Only instances have properties.\n", .{});
                         return InterpreterError.runtime_error;
                     }
 
@@ -585,7 +585,7 @@ pub const VM = struct {
                 },
                 .OpSetProperty => {
                     if (!self.peek(1).isObjType(.instance)) {
-                        self.runtimeError("Only instances have fields.", .{});
+                        self.runtimeError("Only instances have fields.\n", .{});
                         return InterpreterError.runtime_error;
                     }
 
@@ -641,7 +641,7 @@ pub const VM = struct {
                 .OpInherit => {
                     const superClass = self.peek(1);
                     if (!superClass.isObjType(.class)) {
-                        self.runtimeError("Superclass must be a class.", .{});
+                        self.runtimeError("Superclass must be a class.\n", .{});
                         return InterpreterError.runtime_error;
                     }
 
@@ -670,7 +670,7 @@ pub const VM = struct {
         switch (op) {
             .greater => {
                 if (!a.isNumber() or !b.isNumber()) {
-                    self.runtimeError("Operands must be numbers", .{});
+                    self.runtimeError("Operands must be numbers.\n", .{});
                     return InterpreterError.runtime_error;
                 }
 
@@ -678,7 +678,7 @@ pub const VM = struct {
             },
             .less => {
                 if (!a.isNumber() or !b.isNumber()) {
-                    self.runtimeError("Operands must be numbers", .{});
+                    self.runtimeError("Operands must be numbers.\n", .{});
                     return InterpreterError.runtime_error;
                 }
 
@@ -693,13 +693,13 @@ pub const VM = struct {
                     const str = try value.String.init(self, s);
                     result = str.obj.value();
                 } else {
-                    self.runtimeError("Operands must be two numbers or two strings", .{});
+                    self.runtimeError("Operands must be two numbers or two strings.\n", .{});
                     return InterpreterError.runtime_error;
                 }
             },
             .subtract => {
                 if (!a.isNumber() or !b.isNumber()) {
-                    self.runtimeError("Operands must be numbers", .{});
+                    self.runtimeError("Operands must be numbers.\n", .{});
                     return InterpreterError.runtime_error;
                 }
 
@@ -707,21 +707,19 @@ pub const VM = struct {
             },
             .multiply => {
                 if (!a.isNumber() or !b.isNumber()) {
-                    self.runtimeError("Operands must be numbers", .{});
+                    self.runtimeError("Operands must be numbers.\n", .{});
                     return InterpreterError.runtime_error;
                 }
 
                 result = value.Value.fromNumber(a.asNumber() * b.asNumber());
-                self.push(result);
             },
             .divide => {
                 if (!a.isNumber() or !b.isNumber()) {
-                    self.runtimeError("Operands must be numbers", .{});
+                    self.runtimeError("Operands must be numbers.\n", .{});
                     return InterpreterError.runtime_error;
                 }
 
                 result = value.Value.fromNumber(a.asNumber() / b.asNumber());
-                self.push(result);
             },
         }
 
@@ -747,7 +745,7 @@ pub const VM = struct {
             const a = self.pop();
             self.push(value.Value.fromNumber(-a.asNumber()));
         } else {
-            self.runtimeError("Operand must be a number", .{});
+            self.runtimeError("Operand must be a number.\n", .{});
             return InterpreterError.runtime_error;
         }
     }

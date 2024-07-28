@@ -42,31 +42,31 @@ pub const Test = struct {
 
     pub fn init(allocator: std.mem.Allocator, d: std.fs.Dir, path: []const u8) !Self {
         const expectedOutputPattern = try Regex.compile(allocator,
-            \\// expect: ?(.*)
+            \\.*// expect: ?(.*)
         );
 
         const expectedErrorPattern = try Regex.compile(allocator,
-            \\// (Error.*)
+            \\.*// (Error.*)
         );
 
         const errorLinePattern = try Regex.compile(allocator,
-            \\// \[((java|c) )?line (\d+)\] (Error.*)
+            \\.*// \[((java|c) )?line (\d+)\] (Error.*)
         );
 
         const expectedRuntimeErrorPattern = try Regex.compile(allocator,
-            \\// expect runtime error: (.*)
+            \\.*// expect runtime error: (.*)
         );
 
         const syntaxErrorPattern = try Regex.compile(allocator,
-            \\\[.*line (\d+)\] (Error.+)
+            \\.*\[.*line (\d+)\] (Error.+)
         );
 
         const stackTracePattern = try Regex.compile(allocator,
-            \\\[line (\d+)\].*
+            \\.*\[line (\d+)\].*
         );
 
         const nonTestPattern = try Regex.compile(allocator,
-            \\// nontest
+            \\.*// nontest
         );
 
         return .{
@@ -133,8 +133,7 @@ pub const Test = struct {
             }
 
             if (try self.errorLinePattern.captures(line)) |caps| {
-                try stdout.print("cap length: '{d}'\n", .{caps.len()});
-                if (caps.len() < 2) {
+                if (caps.len() < 3) {
                     continue;
                 }
                 const language = caps.sliceAt(2) orelse null;
@@ -415,9 +414,9 @@ pub fn main() !void {
             if (failures.items.len > 0) {
                 try stdout.print("Test failed: '{s}'\n", .{entry.path});
                 for (failures.items) |failure| {
-                    try stdout.print("here...\n", .{});
                     try stdout.print("{s}\n", .{failure});
                 }
+                break;
             } else {
                 try stdout.print("Test passed: '{s}'\n", .{entry.path});
             }
@@ -436,9 +435,11 @@ pub fn main() !void {
             //     try stdout.print("{s}\n", .{proc.stderr});
             // }
             count += 1;
-            if (count == 29) {
-                break;
-            }
+            // if (count == 80) {
+            //     break;
+            // }
         }
     }
+
+    try stdout.print("Ran {d} tests\n", .{count});
 }

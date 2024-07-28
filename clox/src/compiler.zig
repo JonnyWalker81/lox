@@ -249,7 +249,7 @@ pub const Compiler = struct {
                 break;
             }
 
-            const msg = try std.fmt.allocPrint(self.vm.allocator, "{s}", .{self.parser.current.type});
+            const msg = try std.fmt.allocPrint(self.vm.allocator, "{s}", .{self.parser.current.start});
             self.errorAtCurrent(msg);
         }
     }
@@ -524,7 +524,7 @@ pub const Compiler = struct {
         const prefixRule = rule.prefixFn;
 
         if (prefixRule == null) {
-            std.debug.print("No rule found for {s}\n", .{self.parser.current.type});
+            // std.debug.print("No rule found for {s}\n", .{self.parser.current.type});
             self.err("Expect expression.");
             return;
         }
@@ -582,7 +582,7 @@ pub const Compiler = struct {
             }
 
             if (self.identifiersEqual(name, local.name)) {
-                self.err("Variable with this name already declared in this scope.");
+                self.err("Already a variable with this name in this scope.");
             }
         }
 
@@ -598,7 +598,7 @@ pub const Compiler = struct {
     }
 
     fn resolveLocal(self: *Self, name: scanner.Token) !i32 {
-        var i: i32 = @intCast(self.localCount);
+        var i: i32 = @intCast(self.localCount - 1);
         while (i >= 0) : (i -= 1) {
             const local = &self.locals[@intCast(i)];
             // if (local.depth != -1 and local.depth < self.scopeDepth) {
@@ -607,7 +607,7 @@ pub const Compiler = struct {
 
             if (self.identifiersEqual(name, local.name)) {
                 if (local.depth == -1) {
-                    self.err("Cannot read local variable in its own initializer.");
+                    self.err("Can't read local variable in its own initializer.");
                 }
                 return @intCast(i);
             }
@@ -694,14 +694,14 @@ pub const Compiler = struct {
         if (!self.check(.right_paren)) {
             try self.expression();
             if (argCount == std.math.maxInt(u8)) {
-                self.err("Cannot have more than 255 arguments.");
+                self.err("Can't have more than 255 arguments.");
             }
             argCount += 1;
 
             while (try self.match(.comma)) {
                 try self.expression();
                 if (argCount == std.math.maxInt(u8)) {
-                    self.err("Cannot have more than 255 arguments.");
+                    self.err("Can't have more than 255 arguments.");
                 }
                 argCount += 1;
             }
@@ -743,7 +743,7 @@ pub const Compiler = struct {
         if (!compiler.check(.right_paren)) {
             compiler.function.incrementArity();
             if (compiler.function.arity > std.math.maxInt(u8)) {
-                self.err("Cannot have more than 255 parameters.");
+                self.err("Can't have more than 255 parameters.");
             }
 
             var paramConstant = try compiler.parseVariable("Expect parameter name.");
@@ -752,7 +752,7 @@ pub const Compiler = struct {
             while (try compiler.match(.comma)) {
                 compiler.function.incrementArity();
                 if (compiler.function.arity > std.math.maxInt(u8)) {
-                    self.errorAtCurrent("Cannot have more than 255 parameters.");
+                    self.errorAtCurrent("Can't have more than 255 parameters.");
                 }
 
                 paramConstant = try compiler.parseVariable("Expect parameter name.");
@@ -815,7 +815,7 @@ pub const Compiler = struct {
             try self.variable(false);
 
             if (self.identifiersEqual(className, self.parser.previous)) {
-                self.err("A class cannot inherit from itself.");
+                self.err("A class can't inherit from itself.");
             }
 
             try self.beginScope();
@@ -952,14 +952,14 @@ pub const Compiler = struct {
 
     fn returnStatement(self: *Self) !void {
         if (self.funcType == .script) {
-            self.err("Cannot return from top-level code.");
+            self.err("Can't return from top-level code.");
         }
 
         if (try self.match(.semicolon)) {
             try self.emitReturn();
         } else {
             if (self.funcType == .initializer) {
-                self.err("Cannot return a value from an initializer.");
+                self.err("Can't return a value from an initializer.");
             }
 
             try self.expression();
