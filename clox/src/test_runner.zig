@@ -177,13 +177,6 @@ pub const Test = struct {
             .argv = &argv,
         });
 
-        // const stdout = std.io.getStdOut().writer();
-        // if (proc.stdout.len > 0) {
-        //     try stdout.print("{s}\n", .{proc.stdout});
-        // }
-        // if (proc.stderr.len > 0) {
-        //     try stdout.print("output -- {s} --end output\n", .{proc.stderr});
-        // }
         var iter = std.mem.split(u8, proc.stdout, "\n");
         var lines = std.ArrayList([]const u8).init(self.allocator);
         defer lines.deinit();
@@ -212,9 +205,6 @@ pub const Test = struct {
             .Signal => @intCast(proc.term.Signal),
             else => 0,
         };
-
-        // const stdout = std.io.getStdOut().writer();
-        // try stdout.print("Exit code: {d}\n", .{exitCode});
 
         try self.validateExitCode(exitCode, errorLines.items);
         try self.validateOutput(lines.items);
@@ -377,18 +367,11 @@ pub fn main() !void {
     defer arena.deinit();
 
     const stdout = std.io.getStdOut().writer();
-    const cwd = try std.fs.cwd().realpathAlloc(arena.allocator(), ".");
-    try stdout.print("Current directory: '{s}'\n", .{cwd});
     const d = try std.fs.cwd().openDir("../test", .{ .iterate = true });
-    const p = try d.realpathAlloc(arena.allocator(), ".");
-    try stdout.print("Current directory: '{s}'\n", .{p});
-    try stdout.print("Hello, world!\n", .{});
-
-    // on success, we own the output streams
-    // defer alloc.free(proc.stdout);
-    // defer alloc.free(proc.stderr);
+    try stdout.print("Running Test Suite...\n", .{});
 
     var count: usize = 0;
+    var skipped: usize = 0;
     var iter = try d.walk(arena.allocator());
     while (try iter.next()) |entry| {
         if (std.mem.indexOf(u8, entry.path, "benchmark")) |_| {
@@ -396,16 +379,11 @@ pub fn main() !void {
         }
 
         if (entry.kind == .file) {
-            try stdout.print("Entry: '{s}: {s}'\n", .{ entry.basename, entry.path });
-            // if (entry.kind == .file) {
-            // const file = try d.readFileAlloc(arena.allocator(), entry.path, 1024 * 1024);
-            // try stdout.print("File size: {d}\n", .{file.len});
-            // std.debug.print("File contents: '{s}'\n", .{file});
-            // the command to run
             var t = try Test.init(arena.allocator(), d, entry.path);
             defer t.deinit();
 
             if (!try t.parse()) {
+                skipped += 1;
                 continue;
             }
 
@@ -421,25 +399,10 @@ pub fn main() !void {
                 try stdout.print("Test passed: '{s}'\n", .{entry.path});
             }
 
-            // const fullPath = try std.fmt.allocPrint(arena.allocator(), "../test/{s}", .{entry.path});
-            // const argv = [_][]const u8{ "./zig-out/bin/clox", fullPath };
-
-            // const proc = try std.process.Child.run(.{
-            //     .allocator = arena.allocator(),
-            //     .argv = &argv,
-            // });
-
-            // if (proc.stdout.len > 0) {
-            //     try stdout.print("{s}\n", .{proc.stdout});
-            // } else if (proc.stderr.len > 0) {
-            //     try stdout.print("{s}\n", .{proc.stderr});
-            // }
             count += 1;
-            // if (count == 80) {
-            //     break;
-            // }
         }
     }
 
-    try stdout.print("Ran {d} tests\n", .{count});
+    try stdout.print("\nRan {d} tests\n", .{count});
+    try stdout.print("Skipped {d} tests\n", .{skipped});
 }
